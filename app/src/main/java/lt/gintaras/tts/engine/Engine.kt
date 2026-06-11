@@ -11,7 +11,8 @@ class GintarasEngine(
     private val capitalPitch: Boolean = true,
     private val readEmoji: Boolean = true,
     private val readCyrillic: Boolean = true,
-    private val readLatvian: Boolean = true
+    private val readLatvian: Boolean = true,
+    private val numgroup: Int = 16
 ) {
     companion object {
         const val SAMPLE_RATE = 22050
@@ -26,14 +27,16 @@ class GintarasEngine(
         capitalPitch: Boolean? = null,
         readEmoji: Boolean? = null,
         readCyrillic: Boolean? = null,
-        readLatvian: Boolean? = null
+        readLatvian: Boolean? = null,
+        numgroup: Int? = null
     ): IntArray = Speak.synthText(
         text,
-        rate           = rate ?: this.rate,
-        pitch          = pitch ?: this.pitch,
-        capitalPitch   = capitalPitch ?: this.capitalPitch,
-        readEmoji      = readEmoji ?: this.readEmoji,
-        readCyrillic   = readCyrillic ?: this.readCyrillic,
-        readLatvian    = readLatvian ?: this.readLatvian
+        rate         = rate ?: this.rate,
+        pitch        = pitch ?: this.pitch,
+        capitalPitch = capitalPitch ?: this.capitalPitch,
+        readEmoji    = readEmoji ?: this.readEmoji,
+        readCyrillic = readCyrillic ?: this.readCyrillic,
+        readLatvian  = readLatvian ?: this.readLatvian,
+        numgroup     = numgroup ?: this.numgroup
     )
 }

@@ -6,6 +6,7 @@ import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.util.Log
+import androidx.preference.PreferenceManager
 import lt.gintaras.tts.engine.GintarasEngine
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -70,6 +71,9 @@ class GintarasTtsService : TextToSpeechService() {
         // Block until warm-up completes so the first TalkBack label doesn't hit a cold start.
         warmupLatch.await(WARMUP_TIMEOUT_SEC, TimeUnit.SECONDS)
 
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val numgroup = prefs.getString("numgroup", "16")?.toIntOrNull() ?: 16
+
         val rate  = (request.speechRate / 2).coerceIn(0, 100)
         val pitch = (request.pitch       / 2).coerceIn(0, 100)
 
@@ -78,7 +82,7 @@ class GintarasTtsService : TextToSpeechService() {
         try {
             for ((clause, delim) in splitClauses(text)) {
                 if (clause.isNotEmpty()) {
-                    val samples = engine.synthPcm(clause, rate = rate, pitch = pitch)
+                    val samples = engine.synthPcm(clause, rate = rate, pitch = pitch, numgroup = numgroup)
                     streamBytes(samplesToBytes(samples), callback) ?: run { callback.done(); return }
                 }
                 if (delim.isNotEmpty()) {
