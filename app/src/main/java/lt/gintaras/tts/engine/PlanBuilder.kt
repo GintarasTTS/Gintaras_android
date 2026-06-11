@@ -60,7 +60,7 @@ internal object PlanBuilder {
 
     // ---- select_frames ----------------------------------------------------------------
 
-    fun selectFrames(word: String): List<SFrame> {
+    private fun selectFrames(word: String): List<SFrame> {
         val vd = Voice.load()
         val pool = vd.pool
         val units = vd.units
@@ -206,7 +206,7 @@ internal object PlanBuilder {
         return null
     }
 
-    fun genA5List(word: String, gen: List<SFrame>? = null): List<Int> {
+    private fun genA5List(word: String, gen: List<SFrame>? = null): List<Int> {
         val vd = Voice.load()
         val pool = vd.pool; val units = vd.units
         val pads = loadPads()

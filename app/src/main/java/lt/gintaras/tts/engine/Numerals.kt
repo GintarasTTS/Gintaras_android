@@ -76,7 +76,7 @@ internal object Numerals {
         if (s == "0") return ONES[0]!!
         val digits = s.map { it - '0' }
         val ng = (digits.size + 2) / 3
-        val padded = IntArray(ng * 3 - digits.size) { 0 }.toMutableList<Int>() + digits
+        val padded = IntArray(ng * 3 - digits.size) { 0 }.toMutableList() + digits
         val words = mutableListOf<String>()
         for (gi in 0 until ng) {
             val h = padded[gi * 3]; val t = padded[gi * 3 + 1]; val u = padded[gi * 3 + 2]

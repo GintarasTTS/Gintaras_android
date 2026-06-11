@@ -408,10 +408,10 @@ internal object Selection {
                     val natDips = chain.sumOf { k ->
                         if (k in dipkeys || k != pbod) onsetLen(k, vf0, units) else 0.0
                     }
-                    if (on != null && c in SONOR) {
+                    if (on != null && c.isNotEmpty() && c[0] in SONOR) {
                         emit(TilingElem("dip", on, (ic * K_DUR).takeIf { it >= 0 }, true, true, vf0))
                     } else {
-                        if (on != null && c in STOPS && prev != null && isVowel(prev))
+                        if (on != null && c.isNotEmpty() && c[0] in STOPS && prev != null && isVowel(prev))
                             emit(TilingElem("sil", null, CLOSURE_LEN.toDouble(), false, false, f0))
                         if (on != null) emit(TilingElem("dip", on, null, true, true, vf0))
                         // stop/fricative plays native -> subtract onset len
@@ -430,7 +430,7 @@ internal object Selection {
                 } else {
                     // leftover consonant (coda or standalone)
                     val pv = prev?.let { if (it.length == 2) it[1].toString() else it } ?: ""
-                    val nxtUnburst = nxt != null && nxt in STOPS && i + 2 < n &&
+                    val nxtUnburst = nxt != null && nxt.isNotEmpty() && nxt[0] in STOPS && i + 2 < n &&
                             isVowel(phones[i + 2]) && onsetUnit(nxt, phones[i + 2][0], units) == null
                     val nBefK = nxt != null && c in "nN" && nxt in "kK"
                     val rBefT = nxt != null && c in "rR" && nxt in "tT"
@@ -451,7 +451,7 @@ internal object Selection {
                     if (fullCoda != null) {
                         emit(TilingElem("dip", fullCoda, null, isVoiced(c), isVoiced(c), f0))
                     } else {
-                        val tgt = if (c in SONOR) (dur * K_DUR).takeIf { it >= 0 } else null
+                        val tgt = if (c.isNotEmpty() && c[0] in SONOR) (dur * K_DUR).takeIf { it >= 0 } else null
                         emit(TilingElem("dip", standaloneUnit(c, units), tgt, isVoiced(c), isVoiced(c), f0))
                     }
                     tag(i); i++

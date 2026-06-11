@@ -44,7 +44,7 @@ internal object Voice {
             if (!gap.sliceArray(0..7).contentEquals(ZERO8)) { i++; continue }
             val gapSent = gap.sliceArray(8..11)
             if (!gapSent.contentEquals(SENT) && !gapSent.contentEquals(ByteArray(4))) { i++; continue }
-            val key = keyBefore(d, i) ?: run { i++; continue }
+            val key = keyBefore(d, i); if (key == null) { i++; continue }
             if (!key.all { it.isDigit() }) { i++; continue }
             val pcmOff = p + 24
             if (pcmOff + nbytes > n) { i++; continue }
