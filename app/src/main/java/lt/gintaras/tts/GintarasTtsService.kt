@@ -6,35 +6,34 @@ import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.util.Log
-import com.chaquo.python.Python
-import com.chaquo.python.android.AndroidPlatform
+import lt.gintaras.tts.engine.GintarasEngine
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class GintarasTtsService : TextToSpeechService() {
 
     companion object {
         private const val TAG = "GintarasTTS"
         private const val SAMPLE_RATE = 22050
-        private const val CHUNK_BYTES = 8192   // max bytes per audioAvailable() call
+        private const val CHUNK_BYTES = 8192
     }
+
+    private lateinit var engine: GintarasEngine
 
     override fun onCreate() {
         super.onCreate()
-        if (!Python.isStarted()) {
-            Python.start(AndroidPlatform(this))
-        }
-        // Pre-warm the engine on a background thread: loads gintaras.dta + all lexicons
-        // so the first real synthesis request returns without the cold-start delay.
+        GintarasEngine.init(this)
+        engine = GintarasEngine()
+        // Pre-warm: load voice data + lexicons on a background thread
         Thread {
             try {
-                Python.getInstance().getModule("lt_tts_bridge").callAttr("warm_up")
+                lt.gintaras.tts.engine.Voice.load()
                 Log.i(TAG, "Engine warm-up complete")
             } catch (e: Exception) {
                 Log.w(TAG, "Engine warm-up failed", e)
             }
         }.also { it.name = "GintarasTTS-warmup"; it.isDaemon = true }.start()
     }
-
-    // ---- Android TTS service contract --------------------------------------------------
 
     override fun onIsLanguageAvailable(lang: String, country: String, variant: String): Int =
         if (lang == "lit") TextToSpeech.LANG_AVAILABLE else TextToSpeech.LANG_NOT_SUPPORTED
@@ -46,8 +45,6 @@ class GintarasTtsService : TextToSpeechService() {
 
     override fun onStop() {}
 
-    // ---- synthesis ---------------------------------------------------------------------
-
     override fun onSynthesizeText(request: SynthesisRequest, callback: SynthesisCallback) {
         val text = request.charSequenceText?.toString()?.trim()
         if (text.isNullOrEmpty()) {
@@ -56,22 +53,18 @@ class GintarasTtsService : TextToSpeechService() {
             return
         }
 
-        // Android rate/pitch are ints with 100 = normal.
-        // Engine scale: 50 = natural (0-100).  Mapping: android/2, clamped to [0,100].
+        // Android rate/pitch: 100 = normal. Engine scale: 50 = natural (0-100).
         val rate  = (request.speechRate / 2).coerceIn(0, 100)
         val pitch = (request.pitch       / 2).coerceIn(0, 100)
 
-        if (callback.start(SAMPLE_RATE, AudioFormat.ENCODING_PCM_16BIT, 1)
-            == TextToSpeech.ERROR) {
+        if (callback.start(SAMPLE_RATE, AudioFormat.ENCODING_PCM_16BIT, 1) == TextToSpeech.ERROR) {
             Log.e(TAG, "callback.start() returned ERROR")
             return
         }
 
         try {
-            val bridge = Python.getInstance().getModule("lt_tts_bridge")
-            val pcm: ByteArray = bridge.callAttr("synthesize", text, rate, pitch)
-                .toJava(ByteArray::class.java)
-
+            val samples = engine.synthPcm(text, rate = rate, pitch = pitch)
+            val pcm = samplesToBytes(samples)
             var offset = 0
             while (offset < pcm.size) {
                 val len = minOf(CHUNK_BYTES, pcm.size - offset)
@@ -88,5 +81,11 @@ class GintarasTtsService : TextToSpeechService() {
         }
 
         callback.done()
+    }
+
+    private fun samplesToBytes(samples: IntArray): ByteArray {
+        val buf = ByteBuffer.allocate(samples.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+        for (s in samples) buf.putShort(s.coerceIn(-32768, 32767).toShort())
+        return buf.array()
     }
 }

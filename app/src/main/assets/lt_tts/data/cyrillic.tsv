@@ -1,0 +1,137 @@
+# Russian Cyrillic letters.  Read when Gintaras(read_cyrillic=True).
+# [names]  = spoken when the letter is TYPED ALONE (single isolated letter).
+# [sounds] = spoken INSIDE a word (letters joined -> a readable word).  Empty = silent.
+[names]
+а	a
+А	a
+б	bė
+Б	bė
+в	vė
+В	vė
+г	gė
+Г	gė
+д	dė
+Д	dė
+е	jie
+Е	jie
+ё	jo
+Ё	jo
+ж	žė
+Ж	žė
+з	zė
+З	zė
+и	i
+И	i
+й	i trumpoji
+Й	i trumpoji
+к	ka
+К	ka
+л	el
+Л	el
+м	em
+М	em
+н	en
+Н	en
+о	o
+О	o
+п	pė
+П	pė
+р	er
+Р	er
+с	es
+С	es
+т	tė
+Т	tė
+у	u
+У	u
+ф	ef
+Ф	ef
+х	cha
+Х	cha
+ц	cė
+Ц	cė
+ч	čė
+Ч	čė
+ш	ša
+Ш	ša
+щ	ščia
+Щ	ščia
+ъ	kietasis ženklas
+Ъ	kietasis ženklas
+ы	ij
+Ы	ij
+ь	minkštasis ženklas
+Ь	minkštasis ženklas
+э	e
+Э	e
+ю	ju
+Ю	ju
+я	ja
+Я	ja
+[sounds]
+а	a
+А	a
+б	b
+Б	b
+в	v
+В	v
+г	g
+Г	g
+д	d
+Д	d
+е	ie
+Е	ie
+ё	jo
+Ё	jo
+ж	ž
+Ж	ž
+з	z
+З	z
+и	i
+И	i
+й	j
+Й	j
+к	k
+К	k
+л	l
+Л	l
+м	m
+М	m
+н	n
+Н	n
+о	o
+О	o
+п	p
+П	p
+р	r
+Р	r
+с	s
+С	s
+т	t
+Т	t
+у	u
+У	u
+ф	f
+Ф	f
+х	ch
+Х	ch
+ц	c
+Ц	c
+ч	č
+Ч	č
+ш	š
+Ш	š
+щ	šč
+Щ	šč
+ъ	
+Ъ	
+ы	y
+Ы	y
+ь	
+Ь	
+э	e
+Э	e
+ю	ju
+Ю	ju
+я	ja
+Я	ja
