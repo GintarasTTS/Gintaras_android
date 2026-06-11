@@ -88,11 +88,6 @@ internal object Numerals {
 
     private val DIGIT_RE = Regex("""\d+""")
 
-    // numgroup: 1/2/3 = read digits in chunks of that size; 16 = full number expansion (default)
-    fun expandText(text: String, numgroup: Int = 16): String =
-        DIGIT_RE.replace(text) { m ->
-            val n = m.value
-            if (numgroup >= 16) toWords(n) ?: n
-            else n.chunked(numgroup).joinToString(" ") { toWords(it) ?: it }
-        }
+    fun expandText(text: String): String =
+        DIGIT_RE.replace(text) { toWords(it.value) ?: it.value }
 }

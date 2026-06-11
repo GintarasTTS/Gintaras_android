@@ -4,7 +4,6 @@ import android.os.Bundle;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.preference.ListPreference;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
 
@@ -28,14 +27,6 @@ public class SettingsActivity extends AppCompatActivity {
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             setPreferencesFromResource(R.xml.root_preferences, rootKey);
-
-            // Live summaries for list preferences.
-            for (String key : new String[]{getString(R.string.voice_lang), "numgroup"}) {
-                ListPreference lp = findPreference(key);
-                if (lp != null) {
-                    lp.setSummaryProvider(ListPreference.SimpleSummaryProvider.getInstance());
-                }
-            }
 
             // Update check — stub: always reports no updates available.
             Preference upd = findPreference("check_updates");
