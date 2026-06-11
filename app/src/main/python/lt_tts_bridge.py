@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Android bridge: wraps lt_tts.Gintaras, returns raw PCM as bytes for Chaquopy/Kotlin.
+"""Android bridge: wraps lt_tts, returns raw PCM as bytes for Chaquopy/Kotlin.
 
 Engine singleton is kept alive across calls so gintaras.dta and all lexicons are
 loaded only once per process lifetime.
 """
-import struct
+import functools
+import numpy as np
 from lt_tts import Gintaras
 
 _engine = None
@@ -17,21 +18,35 @@ def _get_engine():
     return _engine
 
 
+def _pack(pcm):
+    """Convert a PCM sample list to little-endian int16 bytes via numpy (fast)."""
+    return np.clip(np.asarray(pcm, dtype=np.int32), -32768, 32767).astype(np.int16).tobytes()
+
+
 def warm_up():
     """Trigger all lazy loads (gintaras.dta, lexicons) before the first real call."""
     _get_engine().synth_pcm("a")
 
 
-def synthesize(text, rate=50, pitch=50):
-    """Synthesize `text` -> little-endian int16 PCM bytes at 22050 Hz mono.
+@functools.lru_cache(maxsize=512)
+def _synth_clause_cached(clause, question, rate, pitch):
+    """Synthesize one clause (cached by content). Returns bytes."""
+    from lt_tts import planbuilder as PF, backend as GS
+    r = None if rate == 50 else int(rate)
+    p = None if pitch == 50 else int(pitch)
+    plan = PF.build_plan_phrase(clause, question=bool(question))
+    return _pack(list(GS.synthesize(plan, rate=r, pitch=p)))
 
-    rate and pitch: engine knobs 0..100 (50 = natural, bit-exact).
-    rate_thr(50)==150==THR and pitch_factor(50)==1.0, so 50 is identical to None.
-    Returns bytes; Chaquopy auto-converts to Java byte[].
-    """
+
+def synth_clause(clause, question=False, rate=50, pitch=50):
+    """Synthesize one clause -> PCM bytes (LRU-cached for TalkBack label repetition)."""
+    _get_engine()  # ensure warm
+    return _synth_clause_cached(str(clause), bool(question), int(rate), int(pitch))
+
+
+def synthesize(text, rate=50, pitch=50):
+    """Synthesize full text -> PCM bytes (used as fallback / for testing)."""
     eng = _get_engine()
     r = None if rate == 50 else int(rate)
     p = None if pitch == 50 else int(pitch)
-    pcm = eng.synth_pcm(text, rate=r, pitch=p)
-    return struct.pack("<%dh" % len(pcm),
-                       *[max(-32768, min(32767, int(v))) for v in pcm])
+    return _pack(eng.synth_pcm(text, rate=r, pitch=p))
