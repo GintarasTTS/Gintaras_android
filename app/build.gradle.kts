@@ -6,17 +6,15 @@ plugins {
 
 android {
     namespace   = "lt.gintaras.tts"
-    compileSdk  = 34
+    compileSdk  = 35
 
     defaultConfig {
         applicationId = "lt.gintaras.tts"
         minSdk        = 21
-        targetSdk     = 34
+        targetSdk     = 35
         versionCode   = 1
         versionName   = "1.0"
 
-        // Chaquopy: ABIs to bundle Python + numpy for.
-        // arm64-v8a covers all modern phones; x86_64 covers the emulator.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -29,38 +27,33 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 }
 
 // ---- Chaquopy Python runtime -----------------------------------------------------------
 chaquopy {
     defaultConfig {
-        version = "3.12"           // Python version bundled in the APK
-
+        version = "3.12"
         pip {
-            install("numpy")       // the only non-stdlib dependency of lt_tts
+            install("numpy")
         }
-
-        // lt_tts reads files from its data/ subdirectory via open() / os.path.
-        // extractPackages copies the package out of the APK ZIP to the app's
-        // private files dir on first run, so Python file I/O works normally.
         extractPackages("lt_tts")
     }
-
     sourceSets {
         getByName("main") {
-            srcDir("src/main/python")   // where lt_tts/ and lt_tts_bridge.py live
+            srcDir("src/main/python")
         }
     }
 }
 
 dependencies {
-    // No additional Java/Kotlin dependencies: Chaquopy is applied as a plugin above
-    // and injects its runtime AAR automatically.
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.preference:preference:1.2.1")
+    implementation("com.google.android.material:material:1.12.0")
 }

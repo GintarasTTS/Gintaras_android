@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/cat_voice">
+        <ListPreference
+            android:defaultValue="@string/default_voice"
+            android:entries="@array/listArray"
+            android:entryValues="@array/listValues"
+            android:key="@string/voice_lang"
+            android:title="@string/voice_choice"
+            app:iconSpaceReserved="false"
+            app:singleLineTitle="false"
+            app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/cat_speech">
+        <ListPreference
+            android:defaultValue="1"
+            android:entries="@array/numArray"
+            android:entryValues="@array/numValues"
+            android:key="numgroup"
+            android:title="@string/number_processing"
+            app:iconSpaceReserved="false"
+            app:singleLineTitle="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/cat_updates">
+        <Preference
+            android:key="check_updates"
+            android:title="@string/check_updates"
+            android:summary="@string/check_updates_summary"
+            app:iconSpaceReserved="false"
+            app:singleLineTitle="false" />
+    </PreferenceCategory>
+
+</PreferenceScreen>

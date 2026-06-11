@@ -2,14 +2,37 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:label="@string/app_name"
+        android:name=".GintarasApp"
         android:allowBackup="false"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.Gintaras"
         android:extractNativeLibs="true">
 
+        <!--
+            No LAUNCHER category → the app does not appear in the home-screen grid.
+            MAIN is kept so the activity can still be invoked by the system (e.g. from
+            the Apps list in Android Settings). It immediately forwards to SettingsActivity.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+            </intent-filter>
+        </activity>
+
+        <!-- Settings screen — reachable via the gear icon in system TTS settings. -->
+        <activity
+            android:name=".SettingsActivity"
+            android:label="@string/general_settings"
+            android:exported="true" />
+
+        <!-- TTS service — the core synthesis engine (Python / Chaquopy). -->
         <service
             android:name=".GintarasTtsService"
             android:label="@string/tts_engine_name"
-            android:exported="true">
+            android:exported="true"
+            android:directBootAware="false">
             <intent-filter>
                 <action android:name="android.intent.action.TTS_SERVICE" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -18,6 +41,28 @@
                 android:name="android.speech.tts"
                 android:resource="@xml/tts_service" />
         </service>
+
+        <!-- Reports bundled voices to the TTS framework (CHECK_TTS_DATA). -->
+        <activity
+            android:name=".CheckVoiceData"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.speech.tts.engine.CHECK_TTS_DATA" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Returns sample text for the system TTS settings page (GET_SAMPLE_TEXT). -->
+        <activity
+            android:name=".GetSampleText"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.speech.tts.engine.GET_SAMPLE_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
     </application>
 

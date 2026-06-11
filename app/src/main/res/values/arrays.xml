@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="listArray">
+        <item>Gintaras</item>
+    </string-array>
+    <string-array name="listValues">
+        <item>Gintaras</item>
+    </string-array>
+
+    <string-array name="numArray">
+        <item>Po vieną</item>
+        <item>Po du</item>
+        <item>Po tris</item>
+        <item>Numatytas sintezatoriaus</item>
+    </string-array>
+    <string-array name="numValues">
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+        <item>16</item>
+    </string-array>
+</resources>

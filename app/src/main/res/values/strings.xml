@@ -2,4 +2,25 @@
 <resources>
     <string name="app_name">Gintaras TTS</string>
     <string name="tts_engine_name">Gintaras (Lietuvių)</string>
+    <string name="general_settings">Nustatymai</string>
+    <string name="sample_text">Tai kalbos sintezės lietuvių pavyzdys</string>
+    <string name="available_voices">lit-LTU</string>
+    <string name="lang">lit</string>
+    <string name="country">LTU</string>
+    <string name="default_voice">Gintaras</string>
+
+    <!-- Voice / speech settings -->
+    <string name="voice_lang">voice_lt</string>
+    <string name="voice_choice">Balsai</string>
+    <string name="number_processing">Skaičių įgarsinimas</string>
+
+    <!-- Categories -->
+    <string name="cat_voice">Balsas</string>
+    <string name="cat_speech">Kalbėjimas</string>
+    <string name="cat_updates">Atnaujinimai</string>
+
+    <!-- Update check -->
+    <string name="check_updates">Tikrinti atnaujinimus</string>
+    <string name="check_updates_summary">Patikrinti, ar yra naujesnė versija</string>
+    <string name="updates_none">Atnaujinimų nėra</string>
 </resources>

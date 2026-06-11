@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+        Base theme: static amber palette on Android < 12; Material You dynamic colour
+        on Android 12+ (GintarasApp calls DynamicColors.applyToActivitiesIfAvailable).
+    -->
+    <style name="Theme.Gintaras" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">@color/amber_700</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimaryContainer">@color/amber_100</item>
+        <item name="colorOnPrimaryContainer">@color/amber_900</item>
+        <item name="colorSecondary">@color/amber_700</item>
+        <item name="colorSecondaryContainer">@color/amber_100</item>
+        <item name="colorOnSecondaryContainer">@color/amber_900</item>
+        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <!-- Opt out of forced edge-to-edge (API 35) so the settings list is not
+             clipped under the status bar. Silently ignored on older versions. -->
+        <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
+    </style>
+
+    <style name="Theme.Gintaras.Settings" parent="Theme.Gintaras" />
+</resources>
