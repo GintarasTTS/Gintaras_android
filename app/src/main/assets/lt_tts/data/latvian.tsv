@@ -1,0 +1,41 @@
+# Latvian letters NOT shared with Lithuanian.  Read when Gintaras(read_latvian=True).
+# (s,z,c-hacek and u-macron are shared with Lithuanian and intentionally omitted.)
+# [names] = typed alone;  [sounds] = inside a word.
+[names]
+ā	ilgoji a
+Ā	ilgoji a
+ē	ilgoji e
+Ē	ilgoji e
+ī	ilgoji i
+Ī	ilgoji i
+ō	ilgoji o
+Ō	ilgoji o
+ŗ	er minkštoji
+Ŗ	er minkštoji
+ļ	el minkštoji
+Ļ	el minkštoji
+ņ	en minkštoji
+Ņ	en minkštoji
+ķ	ka minkštoji
+Ķ	ka minkštoji
+ģ	ge minkštoji
+Ģ	ge minkštoji
+[sounds]
+ā	a
+Ā	a
+ē	e
+Ē	e
+ī	i
+Ī	i
+ō	o
+Ō	o
+ŗ	r
+Ŗ	r
+ļ	l
+Ļ	l
+ņ	n
+Ņ	n
+ķ	k
+Ķ	k
+ģ	g
+Ģ	g

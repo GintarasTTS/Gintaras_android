@@ -6,9 +6,9 @@ import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.util.Log
-import com.chaquo.python.PyObject
-import com.chaquo.python.Python
-import com.chaquo.python.android.AndroidPlatform
+import lt.gintaras.tts.engine.GintarasEngine
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -20,7 +20,6 @@ class GintarasTtsService : TextToSpeechService() {
         private const val CHUNK_BYTES = 8192
         private const val WARMUP_TIMEOUT_SEC = 30L
 
-        // Pause durations (ms) mirroring speak.py PAUSE table
         private val PAUSE_MS = mapOf(
             ',' to 200, ';' to 280, ':' to 280,
             '.' to 360, '!' to 360, '?' to 360, '—' to 280
@@ -28,25 +27,18 @@ class GintarasTtsService : TextToSpeechService() {
     }
 
     private val warmupLatch = CountDownLatch(1)
-
-    @Volatile private var bridge: PyObject? = null
+    private lateinit var engine: GintarasEngine
 
     override fun onCreate() {
         super.onCreate()
-        if (!Python.isStarted()) {
-            Python.start(AndroidPlatform(this))
-        }
+        GintarasEngine.init(this)
+        engine = GintarasEngine()
         val t = Thread {
             try {
-                val b = Python.getInstance().getModule("lt_tts_bridge")
-                b.callAttr("warm_up")
-                bridge = b
+                lt.gintaras.tts.engine.Voice.load()
                 Log.i(TAG, "Engine warm-up complete")
             } catch (e: Exception) {
                 Log.w(TAG, "Engine warm-up failed", e)
-                bridge = try {
-                    Python.getInstance().getModule("lt_tts_bridge")
-                } catch (_: Exception) { null }
             } finally {
                 warmupLatch.countDown()
             }
@@ -57,8 +49,6 @@ class GintarasTtsService : TextToSpeechService() {
         t.start()
     }
 
-    // ---- Android TTS service contract --------------------------------------------------
-
     override fun onIsLanguageAvailable(lang: String, country: String, variant: String): Int =
         if (lang == "lit") TextToSpeech.LANG_AVAILABLE else TextToSpeech.LANG_NOT_SUPPORTED
 
@@ -68,8 +58,6 @@ class GintarasTtsService : TextToSpeechService() {
         onIsLanguageAvailable(lang, country, variant)
 
     override fun onStop() {}
-
-    // ---- synthesis ---------------------------------------------------------------------
 
     override fun onSynthesizeText(request: SynthesisRequest, callback: SynthesisCallback) {
         val text = request.charSequenceText?.toString()?.trim()
@@ -87,19 +75,15 @@ class GintarasTtsService : TextToSpeechService() {
 
         if (callback.start(SAMPLE_RATE, AudioFormat.ENCODING_PCM_16BIT, 1) == TextToSpeech.ERROR) return
 
-        val b = bridge ?: run { callback.error(); return }
-
         try {
             for ((clause, delim) in splitClauses(text)) {
                 if (clause.isNotEmpty()) {
-                    val pcm: ByteArray = b.callAttr(
-                        "synth_clause", clause, delim == "?", rate, pitch
-                    ).toJava(ByteArray::class.java)
-                    streamBytes(pcm, callback) ?: run { callback.done(); return }
+                    val samples = engine.synthPcm(clause, rate = rate, pitch = pitch)
+                    streamBytes(samplesToBytes(samples), callback) ?: run { callback.done(); return }
                 }
                 if (delim.isNotEmpty()) {
                     val silMs = PAUSE_MS[delim[0]] ?: 120
-                    val sil = ByteArray(SAMPLE_RATE * silMs / 1000 * 2) // 16-bit silence
+                    val sil = ByteArray(SAMPLE_RATE * silMs / 1000 * 2)
                     streamBytes(sil, callback) ?: run { callback.done(); return }
                 }
             }
@@ -112,9 +96,6 @@ class GintarasTtsService : TextToSpeechService() {
         callback.done()
     }
 
-    // ---- helpers -----------------------------------------------------------------------
-
-    /** Returns null (and stops) on ERROR, or Unit on success. */
     private fun streamBytes(pcm: ByteArray, callback: SynthesisCallback): Unit? {
         var offset = 0
         while (offset < pcm.size) {
@@ -123,6 +104,12 @@ class GintarasTtsService : TextToSpeechService() {
             offset += len
         }
         return Unit
+    }
+
+    private fun samplesToBytes(samples: IntArray): ByteArray {
+        val buf = ByteBuffer.allocate(samples.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+        for (s in samples) buf.putShort(s.coerceIn(-32768, 32767).toShort())
+        return buf.array()
     }
 
     private data class ClauseToken(val text: String, val delimiter: String)
