@@ -20,9 +20,21 @@ android {
         }
     }
 
+    signingConfigs {
+        // Sign the release APK with the standard Android debug key so the rolling
+        // FOSS build is directly installable without a private keystore.
+        create("release") {
+            storeFile   = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias    = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig   = signingConfigs.getByName("release")
         }
     }
 

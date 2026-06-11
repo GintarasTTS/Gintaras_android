@@ -1,0 +1,83 @@
+name: Build & Release APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build debug + release APKs (Chaquopy / Python 3.12 + numpy)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK (includes NDK — required by Chaquopy)
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # Release APK is signed with the standard debug key so it is directly
+      # installable without a private keystore (FOSS rolling build pattern).
+      - name: Ensure debug keystore exists
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      # Chaquopy downloads Python 3.12 runtime + numpy from the network during the
+      # first build; subsequent runs hit the Gradle/Chaquopy cache.
+      - name: Build debug + release APKs
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
+
+      - name: Stage APKs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk     dist/gintaras-tts-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk dist/gintaras-tts-release.apk
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gintaras-tts-apks
+          path: dist/*.apk
+          if-no-files-found: error
+
+      # Publish to a rolling "latest" release — overwritten on every push to main.
+      - name: Publish to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest \
+            dist/gintaras-tts-release.apk \
+            dist/gintaras-tts-debug.apk \
+            --title "Latest build (${GITHUB_SHA::7})" \
+            --notes "Automatinis build iš commit \`${GITHUB_SHA::7}\`.
+
+          **Diegimas:**
+          1. Atsisiųsk \`gintaras-tts-release.apk\`
+          2. Įdiek ant Android įrenginio
+          3. Nustatymai → Kalba ir įvedimas → Teksto į kalbą išvestis → pasirink **Gintaras (Lietuvių)**" \
+            --latest
