@@ -9,8 +9,50 @@ permissions:
   contents: write
 
 jobs:
+  engine-parity:
+    name: Kotlin/Python engine parity (bit-exact)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Kotlin compiler + org.json
+        run: |
+          curl -sLo kotlinc.zip https://github.com/JetBrains/kotlin/releases/download/v1.9.22/kotlin-compiler-1.9.22.zip
+          unzip -q kotlinc.zip
+          curl -sLo json.jar https://repo1.maven.org/maven2/org/json/json/20240303/json-20240303.jar
+
+      # The bundled Python engine (app/src/main/python/lt_tts) is the reference: it is validated
+      # bit-exact against the original hlas/transcr4 DLLs. The Kotlin engine must reproduce its
+      # PCM output IDENTICALLY for every case.
+      - name: Generate golden vectors (Python reference engine)
+        run: python3 jvmtest/gen_golden.py
+
+      - name: Compile Kotlin engine + parity harness
+        run: |
+          FILES=$(ls app/src/main/java/lt/gintaras/tts/engine/*.kt | grep -v -e 'Assets.kt' -e 'Engine.kt')
+          kotlinc/bin/kotlinc $FILES jvmtest/JvmAssets.kt jvmtest/Harness.kt \
+            -cp json.jar -include-runtime -d harness.jar
+
+      - name: Run parity suite
+        run: |
+          java -cp harness.jar:json.jar lt.gintaras.tts.engine.HarnessKt \
+            app/src/main/assets/lt_tts/data jvmtest/cases.tsv jvmtest/kotlin_out.tsv
+          if diff jvmtest/golden.tsv jvmtest/kotlin_out.tsv; then
+            echo "PARITY OK: all cases bit-identical"
+          else
+            echo "PARITY FAILURE: Kotlin output diverges from the Python reference" >&2
+            exit 1
+          fi
+
   build:
-    name: Build debug + release APKs (Chaquopy / Python 3.12 + numpy)
+    name: Build debug + release APKs (pure-Kotlin engine)
     runs-on: ubuntu-latest
 
     steps:
