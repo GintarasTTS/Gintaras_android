@@ -18,21 +18,58 @@ The [names] / [sounds] blocks supply the two readings; CAPITALS are defined too 
 Normal Lithuanian text is never altered: emoji/Cyrillic trigger only on their own codepoints, and latvian.tsv
 contains only letters that do not occur in Lithuanian. `expand` is a no-op when nothing matches.
 """
-import os, re
+import os, re, unicodedata
 from . import paths
 
 READ_EMOJI = True
 READ_CYRILLIC = True
 READ_LATVIAN = True
+READ_PUNCTUATION = False        # OFF by default: a screen reader (NVDA/TalkBack) expands punctuation into
+                                # words ITSELF according to the user's punctuation-verbosity setting, so the
+                                # engine must stay silent on punctuation (like every mainstream TTS) -- naming
+                                # it here made quotes etc. ALWAYS spoken regardless of the SR setting. True
+                                # restores the old always-name behavior for hosts without symbol processing.
+
+# clause delimiters that drive pauses / the question contour -- never stripped
+_DELIMS = set(u".,;:!?—")
+# text-normalization symbols mainstream TTS engines DO read as part of plain text (50% -> "proc",
+# §3, A&B, #1, 20°) -- kept spoken even with punctuation off
+_PUNCT_KEEP = set(u"%‰§¶&#°")
+
+
+def _strip_punct(text):
+    """Replace every Unicode punctuation char (category P*) and spacing accent (Sk: ` ´ ^ ¨) with a space --
+    the 'skip punctuation' reading every other TTS does. Clause delimiters survive (they only time pauses,
+    they are never spoken) and the _PUNCT_KEEP normalization symbols survive. This also keeps stray ASCII
+    quotes/brackets/hyphens from ever reaching the word pipeline, where they used to garble the token."""
+    out = []
+    for ch in text:
+        if ch in _DELIMS or ch in _PUNCT_KEEP:
+            out.append(ch)
+            continue
+        cat = unicodedata.category(ch)
+        out.append(" " if (cat[0] == "P" or cat == "Sk") else ch)
+    return "".join(out)
 
 _EMOJI = None
 _EMOJI_RE = None
+_EMOJI_RE_NOPUNCT = None        # emoji regex EXCLUDING punctuation-named entries (the read_punctuation=False
+                                # table: kept delimiters like the em dash must pause, not be named)
 _LETTERS = {}                   # filename -> {'names': {ch:txt}, 'sounds': {ch:txt}}  (None inside = absent)
 
 
 # ---- loaders -------------------------------------------------------------------------------------------------
+def _is_punct_key(k):
+    """A table key that is a single punctuation char (category P*) or spacing accent (Sk) -- the entries
+    gated by read_punctuation (real emoji and the _PUNCT_KEEP normalization symbols are never gated)."""
+    if len(k) != 1 or k in _PUNCT_KEEP:
+        return False
+    cat = unicodedata.category(k)
+    return cat[0] == "P" or cat == "Sk"
+
+
 def _load_emoji():
-    global _EMOJI, _EMOJI_RE
+    global _EMOJI, _EMOJI_RE, _EMOJI_RE_NOPUNCT
     if _EMOJI is None:
         _EMOJI = {}
         path = paths.data_path("emoji.tsv")
@@ -47,7 +84,10 @@ def _load_emoji():
         # longest key first so multi-codepoint (ZWJ) emoji win over their parts
         _EMOJI_RE = (re.compile("|".join(re.escape(k) for k in sorted(_EMOJI, key=len, reverse=True)))
                      if _EMOJI else None)
-    return _EMOJI, _EMOJI_RE
+        nop = [k for k in _EMOJI if not _is_punct_key(k)]
+        _EMOJI_RE_NOPUNCT = (re.compile("|".join(re.escape(k) for k in sorted(nop, key=len, reverse=True)))
+                             if nop else None)
+    return _EMOJI, _EMOJI_RE, _EMOJI_RE_NOPUNCT
 
 
 def _load_letters(filename):
@@ -107,18 +147,28 @@ _CYR_RE = re.compile(r"[Ѐ-ӿ]")              # Cyrillic block
 _LAV_RE = re.compile(r"[āĀēĒīĪōŌŗŖļĻņŅķĶģĢ]")   # the Latvian-unique letters in latvian.tsv
 
 
-def expand(text, read_emoji=None, read_cyrillic=None, read_latvian=None):
+def expand(text, read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None):
     """Substitute emoji / Cyrillic / Latvian symbols with spoken Lithuanian text. Disabled features and missing
     files are skipped. A NO-OP (returns the input unchanged) when nothing matches, so normal Lithuanian text is
-    never altered."""
+    never altered. read_punctuation=False (the default) strips punctuation BEFORE the emoji table runs, so the
+    punctuation names in emoji.tsv stay available for read_punctuation=True hosts but a screen reader's own
+    punctuation setting is what decides whether the user hears them."""
     re_e = READ_EMOJI if read_emoji is None else read_emoji
     re_c = READ_CYRILLIC if read_cyrillic is None else read_cyrillic
     re_l = READ_LATVIAN if read_latvian is None else read_latvian
+    re_p = READ_PUNCTUATION if read_punctuation is None else read_punctuation
     changed = False
 
+    if not re_p:
+        t2 = _strip_punct(text)
+        if t2 != text:
+            text = t2
+            changed = True
+
     if re_e:
-        emap, ere = _load_emoji()
-        if ere is not None and ere.search(text):
+        emap, ere_full, ere_nop = _load_emoji()
+        ere = ere_full if re_p else ere_nop          # punct off -> punctuation-named entries excluded, so a
+        if ere is not None and ere.search(text):     # kept delimiter (em dash) pauses instead of being named
             text = ere.sub(lambda m: " " + emap[m.group(0)] + " ", text)
             changed = True
 

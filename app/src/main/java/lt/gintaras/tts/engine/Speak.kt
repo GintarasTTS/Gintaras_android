@@ -31,12 +31,15 @@ internal object Speak {
         capitalPitch: Boolean = true,
         readEmoji: Boolean? = null,
         readCyrillic: Boolean? = null,
-        readLatvian: Boolean? = null
+        readLatvian: Boolean? = null,
+        readPunctuation: Boolean? = null
     ): IntArray {
         val expanded = Symbols.expand(text,
             readEmoji = readEmoji ?: true,
             readCyrillic = readCyrillic ?: true,
-            readLatvian = readLatvian ?: true
+            readLatvian = readLatvian ?: true,
+            readPunctuation = readPunctuation ?: false   // skip punctuation: the screen reader's own
+                                                         // punctuation setting decides whether it's named
         )
         val numbered = Numerals.expandText(expanded)
 

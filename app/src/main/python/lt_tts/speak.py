@@ -40,9 +40,11 @@ def _is_letter_token(word):
 
 
 def synth_text(text, rate=None, pitch=None, capital_pitch=True,
-               read_emoji=None, read_cyrillic=None, read_latvian=None):
+               read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None):
     text = SY.expand(text, read_emoji=read_emoji, read_cyrillic=read_cyrillic,
-                     read_latvian=read_latvian)         # emoji / Cyrillic / Latvian -> spoken Lithuanian
+                     read_latvian=read_latvian,         # emoji / Cyrillic / Latvian -> spoken Lithuanian
+                     read_punctuation=read_punctuation)  # punctuation: SKIPPED by default (the screen
+                                                         # reader's own punctuation setting names it)
     text = LN.expand_text(text)                                  # digits -> numeral words
     # Synthetic pause scale: the engine scales ALL its silences with the rate (duration ~ a1), so our own
     # LEAD/TAIL/clause pauses must follow -- a fast rate with fixed 0.2-0.36s pauses is what made fast NVDA

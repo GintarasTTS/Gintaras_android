@@ -9,7 +9,46 @@ internal object Symbols {
 
     private var emojiMap: Map<String, String>? = null
     private var emojiRe: Regex? = null
+    private var emojiReNoPunct: Regex? = null   // emoji regex EXCLUDING punctuation-named entries (the
+                                                // readPunctuation=false table: a kept delimiter like the
+                                                // em dash must pause, not be named)
+    private var emojiLoaded = false
     private val letterMaps = mutableMapOf<String, Map<String, Map<String, String>>?>()
+
+    // clause delimiters that drive pauses / the question contour -- never stripped
+    private val DELIMS = setOf(',', ';', ':', '.', '!', '?', '—')
+    // text-normalization symbols mainstream TTS engines DO read as part of plain text (50% -> "proc",
+    // §3, A&B, #1, 20°) -- kept spoken even with punctuation off
+    private val PUNCT_KEEP = setOf('%', '‰', '§', '¶', '&', '#', '°')
+
+    private fun isPunctChar(ch: Char): Boolean {
+        val t = Character.getType(ch)
+        return t == Character.DASH_PUNCTUATION.toInt() ||
+               t == Character.START_PUNCTUATION.toInt() ||
+               t == Character.END_PUNCTUATION.toInt() ||
+               t == Character.CONNECTOR_PUNCTUATION.toInt() ||
+               t == Character.OTHER_PUNCTUATION.toInt() ||
+               t == Character.INITIAL_QUOTE_PUNCTUATION.toInt() ||
+               t == Character.FINAL_QUOTE_PUNCTUATION.toInt() ||
+               t == Character.MODIFIER_SYMBOL.toInt()      // Sk: ` ´ ^ ¨ spacing accents
+    }
+
+    // A table key that is a single punctuation char -- the entries gated by readPunctuation
+    // (real emoji and the PUNCT_KEEP normalization symbols are never gated).
+    private fun isPunctKey(k: String): Boolean =
+        k.length == 1 && k[0] !in PUNCT_KEEP && isPunctChar(k[0])
+
+    /** Replace every Unicode punctuation char (category P*) and spacing accent (Sk) with a space --
+     *  the 'skip punctuation' reading every other TTS does. Clause delimiters survive (they only time
+     *  pauses, they are never spoken) and the PUNCT_KEEP normalization symbols survive. This also keeps
+     *  stray ASCII quotes/brackets/hyphens from ever reaching the word pipeline. */
+    private fun stripPunct(text: String): String {
+        val sb = StringBuilder(text.length)
+        for (ch in text) {
+            sb.append(if (ch !in DELIMS && ch !in PUNCT_KEEP && isPunctChar(ch)) ' ' else ch)
+        }
+        return sb.toString()
+    }
 
     // Cyrillic block U+0400–U+04FF
     private val CYR_RE = Regex("[Ѐ-ӿ]+")
@@ -17,8 +56,8 @@ internal object Symbols {
     // Latvian-unique letters (as in latvian.tsv)
     private val LAV_RE = Regex("[āĀēĒīĪōŌŗŖļĻņŅķĶģĢ]+")
 
-    private fun loadEmoji(): Pair<Map<String, String>, Regex?> {
-        emojiMap?.let { return Pair(it, emojiRe) }
+    private fun loadEmoji(): Triple<Map<String, String>, Regex?, Regex?> {
+        if (emojiLoaded) return Triple(emojiMap ?: emptyMap(), emojiRe, emojiReNoPunct)
         val map = mutableMapOf<String, String>()
         try {
             val lines = Assets.lines("emoji.tsv")
@@ -34,8 +73,12 @@ internal object Symbols {
         val re = if (map.isNotEmpty())
             Regex(map.keys.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) })
         else null
-        emojiMap = map; emojiRe = re
-        return Pair(map, re)
+        val nop = map.keys.filter { !isPunctKey(it) }
+        val reNop = if (nop.isNotEmpty())
+            Regex(nop.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) })
+        else null
+        emojiMap = map; emojiRe = re; emojiReNoPunct = reNop; emojiLoaded = true
+        return Triple(map, re, reNop)
     }
 
     private fun loadLetters(filename: String): Map<String, Map<String, String>>? {
@@ -101,12 +144,22 @@ internal object Symbols {
     fun expand(text: String,
                readEmoji: Boolean = true,
                readCyrillic: Boolean = true,
-               readLatvian: Boolean = true): String {
+               readLatvian: Boolean = true,
+               readPunctuation: Boolean = false): String {
         var t = text
         var changed = false
 
+        // Punctuation is SKIPPED by default: a screen reader (TalkBack) expands punctuation into words
+        // ITSELF according to the user's punctuation-verbosity setting, so the engine staying silent on
+        // it is what makes that setting work (naming it here made quotes etc. ALWAYS spoken).
+        if (!readPunctuation) {
+            val t2 = stripPunct(t)
+            if (t2 != t) { t = t2; changed = true }
+        }
+
         if (readEmoji) {
-            val (emap, ere) = loadEmoji()
+            val (emap, ereFull, ereNop) = loadEmoji()
+            val ere = if (readPunctuation) ereFull else ereNop
             if (ere != null && ere.containsMatchIn(t)) {
                 t = ere.replace(t) { " ${emap[it.value]} " }
                 changed = true

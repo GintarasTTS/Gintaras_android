@@ -11,7 +11,10 @@ class GintarasEngine(
     private val capitalPitch: Boolean = true,
     private val readEmoji: Boolean = true,
     private val readCyrillic: Boolean = true,
-    private val readLatvian: Boolean = true
+    private val readLatvian: Boolean = true,
+    // OFF by default: the screen reader (TalkBack) names punctuation itself according to the user's
+    // punctuation-verbosity setting; the engine skipping it is what makes that setting work.
+    private val readPunctuation: Boolean = false
 ) {
     companion object {
         const val SAMPLE_RATE = 22050
@@ -26,7 +29,8 @@ class GintarasEngine(
         capitalPitch: Boolean? = null,
         readEmoji: Boolean? = null,
         readCyrillic: Boolean? = null,
-        readLatvian: Boolean? = null
+        readLatvian: Boolean? = null,
+        readPunctuation: Boolean? = null
     ): IntArray = Speak.synthText(
         text,
         rate         = rate ?: this.rate,
@@ -34,6 +38,7 @@ class GintarasEngine(
         capitalPitch = capitalPitch ?: this.capitalPitch,
         readEmoji    = readEmoji ?: this.readEmoji,
         readCyrillic = readCyrillic ?: this.readCyrillic,
-        readLatvian  = readLatvian ?: this.readLatvian
+        readLatvian  = readLatvian ?: this.readLatvian,
+        readPunctuation = readPunctuation ?: this.readPunctuation
     )
 }
