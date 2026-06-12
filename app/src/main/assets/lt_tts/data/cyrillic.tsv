@@ -3,55 +3,55 @@
 # [sounds] = spoken INSIDE a word (letters joined -> a readable word).  Empty = silent.
 [names]
 а	a
-А	a
-б	bė
-Б	bė
-в	vė
-В	vė
-г	gė
-Г	gė
-д	dė
-Д	dė
+А	A
+б	b
+Б	B
+в	v
+В	V
+г	g
+Г	G
+д	d
+Д	D
 е	jie
-Е	jie
+Е	JIE
 ё	jo
-Ё	jo
-ж	žė
-Ж	žė
-з	zė
-З	zė
+Ё	JO
+ж	ž
+Ж	Ž
+з	z
+З	Z
 и	i
-И	i
+И	I
 й	i trumpoji
-Й	i trumpoji
-к	ka
-К	ka
-л	el
-Л	el
-м	em
-М	em
-н	en
-Н	en
+Й	I trumpoji
+к	k
+К	K
+л	l
+Л	L
+м	m
+М	M
+н	n
+Н	N
 о	o
-О	o
-п	pė
-П	pė
-р	er
-Р	er
-с	es
-С	es
-т	tė
-Т	tė
+О	O
+п	p
+П	P
+р	r
+Р	R
+с	s
+С	S
+т	t
+Т	T
 у	u
-У	u
-ф	ef
-Ф	ef
+У	U
+ф	f
+Ф	F
 х	cha
 Х	cha
-ц	cė
-Ц	cė
-ч	čė
-Ч	čė
+ц	c
+Ц	C
+ч	č
+Ч	Č
 ш	ša
 Ш	ša
 щ	ščia
@@ -59,11 +59,11 @@
 ъ	kietasis ženklas
 Ъ	kietasis ženklas
 ы	ij
-Ы	ij
+Ы	IJ
 ь	minkštasis ženklas
 Ь	minkštasis ženklas
 э	e
-Э	e
+Э	E
 ю	ju
 Ю	ju
 я	ja
