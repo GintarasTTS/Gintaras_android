@@ -196,7 +196,7 @@ internal object PlanBuilder {
         return out
     }
 
-    private fun a5Eligible(key: String, phone: String, D: Int?, prevPhone: String?): String? {
+    private fun a5Eligible(key: String, phone: String, D: Int?, prevPhone: String?, raw: String? = null): String? {
         val body = key.trimStart('-').trimEnd('-').replace("|", "")
         val isCoda = key.startsWith("-") || (!key.endsWith("-") && key.length <= 3)
         val isOnset = key.endsWith("-")
@@ -204,7 +204,14 @@ internal object PlanBuilder {
         if (isCoda && body.isNotEmpty() && body.last().toString() in A5_LONG_MONO
             && pl.length == 1 && pl in A5_LONG_MONO
         ) {
-            if (prevPhone != null && Selection.isVowel(prevPhone)) return null
+            // a HIATUS o (a vowel immediately before it) doubles only when the RAW transcr token is the
+            // LONG doubled 'oo'/'Oo'/'oO' (ios i-oo-s: engine a5=[0,1x10], capture_prosody-verified); the
+            // SHORT stressed 'O' (chaosas a-O) does NOT double. norm() collapses both to 'o', so the raw
+            // token (PhoneEntry.raw) carries the distinction.
+            if (prevPhone != null && Selection.isVowel(prevPhone)) {
+                val rawLong = raw != null && raw.replace("'", "").lowercase() == "oo"
+                if (!rawLong) return null
+            }
             return if (D == null || D >= A5_DMIN) "o" else null
         }
         if (isOnset && pl in A5_AU_ONSET) return "au"
@@ -222,6 +229,7 @@ internal object PlanBuilder {
         val full = Selection.frontendFree(word).filter { it.phone != "_" }
         val phones = full.map { it.phone }
         val durs = full.map { it.dur }
+        val raws = full.map { it.raw }   // raw transcr token ('oo' vs 'O' for the hiatus-o gate)
 
         val out = mutableListOf<Int>()
         var i = 0
@@ -241,7 +249,8 @@ internal object PlanBuilder {
                 out.addAll((kept + List(n) { 0 }).take(n))
             } else {
                 val prevPhone = if (pi != null && pi >= 1) phones.getOrNull(pi - 1) else null
-                val cls = if (n <= 14) a5Eligible(key, phone, D, prevPhone) else null
+                val raw = if (pi != null) raws.getOrNull(pi) else null
+                val cls = if (n <= 14) a5Eligible(key, phone, D, prevPhone, raw) else null
                 when (cls) {
                     "o"  -> out.addAll(a5LongDistribute(n))
                     "au" -> { out.add(0); repeat(n - 1) { out.add(1) } }
@@ -293,7 +302,9 @@ internal object PlanBuilder {
             engstr[it - 1] == 0x61.toByte() && (engstr[it].toInt() and 0xff) in DIPH_GLIDES
         }.toSet()
         val skip = pipes + dskip
-        val seg = word.length / 2
+        // s7c = strlen of the word the ENGINE would see: our i-hiatus reading feeds the engine-equivalent
+        // DOUBLED word (ios is rendered as iios), so the arm midpoint must use the expanded length too.
+        val seg = Transcribe.s7cWord(word).length / 2
         for (k in 0 until n) { if (k !in skip && k >= seg) return k }
         return n - 1
     }

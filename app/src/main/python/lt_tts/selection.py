@@ -186,7 +186,10 @@ def _recs_to_full(recs):
         # whose 2nd char also happens to be in the glide set "iju" -> they must go through norm()'s LONG map.
         isdiph = len(low) == 2 and low[0] != low[1] and low[0] in "aeiou" and low[1] in "iju"
         phone = "_" if tok == "_" else (low if isdiph else norm(tok))
-        out.append((phone, dur, bps, stressed, palatal))
+        # RAW transcr token as a 6th parallel field (same pattern as `palatal`): norm() collapses the
+        # SHORT stressed 'O' and the LONG 'oo'/'Oo'/'oO' to the same 'o', but the long-/o:/ a5 doubling
+        # needs that distinction for a HIATUS o (ios i-oo-s doubles, chaosas a-O does not).
+        out.append((phone, dur, bps, stressed, palatal, tok))
     return out
 
 # ---------------------------------------------------------------- transcr4-FREE front-end

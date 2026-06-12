@@ -54,7 +54,11 @@ internal object Selection {
         val dur: Int,
         val bps: List<Pair<Int, Int>>,
         val stressed: Boolean,
-        val palatal: Boolean
+        val palatal: Boolean,
+        // RAW transcr token (same pattern as `palatal`): norm() collapses the SHORT stressed 'O' and the
+        // LONG 'oo'/'Oo'/'oO' to the same 'o', but the long-/o:/ a5 doubling needs that distinction for a
+        // HIATUS o (ios i-oo-s doubles, chaosas a-O does not).
+        val raw: String
     )
 
     data class TilingElem(
@@ -143,7 +147,7 @@ internal object Selection {
             val isdiph = low.length == 2 && low[0] != low[1] &&
                     low[0] in "aeiou" && low[1] in "iju"
             val phone = if (tok == "_") "_" else (if (isdiph) low else norm(tok))
-            PhoneEntry(phone, dur, bps, stressed, palatal)
+            PhoneEntry(phone, dur, bps, stressed, palatal, tok)
         }
     }
 

@@ -103,6 +103,14 @@ internal object Transcribe {
     private fun shortenO(w: String, toks: List<String>): List<String> =
         if (w in SHORT_O) toks.map { if (it == "oo") "o" else it } else toks
 
+    /** The word whose strlen the engine's s7c would see: the i-hiatus doubling feeds the engine-equivalent
+     *  word (ios is rendered as iios), so the se8-arm midpoint must use the expanded length too -- gated
+     *  exactly like transcribe() (OOV only: a lexicon word never doubles). */
+    fun s7cWord(word: String): String =
+        if (word.length >= 2 && word[0] in "iI" && loadLex()[word.lowercase()] == null)
+            iHiatus(word)
+        else word
+
     /**
      * Full token list with leading/trailing '_'. Two tiers:
      * 1) exact lexicon hit -> transcr4's own accented tokens (bit-exact);

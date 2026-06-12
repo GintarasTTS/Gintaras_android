@@ -40,7 +40,7 @@ def select_frames(word):
     full = G.front(word)                             # [(phone,dur,bps,stressed)] incl '_' boundaries
     f0_fn, cum = G.build_f0(full)
     inner = [(p, dr, G.damp(f0_fn((t0 + t1) / 2), st and G.is_vowel(p)), st, pal)
-             for (p, dr, _b, st, pal), (t0, t1) in zip(full, cum) if p != "_"]
+             for (p, dr, _b, st, pal, _raw), (t0, t1) in zip(full, cum) if p != "_"]
     phones = [p for p, _, _, _, _ in inner]; durs = [dr for _, dr, _, _, _ in inner]
     f0s = [f for _, _, f, _, _ in inner]; stresses = [s for _, _, _, s, _ in inner]
     palatals = [pl for _, _, _, _, pl in inner]
@@ -203,7 +203,7 @@ def _a5_unit_pads():
     return _A5_PADS, _A5_BIT6
 
 
-def _a5_eligible(key, phone, D, prev_phone=None):
+def _a5_eligible(key, phone, D, prev_phone=None, raw=None):
     """Doubling class of a NON-bit6 unit: 'o' = long /o:/ (the DF90 10-extra distribute, _a5_long_distribute),
     'au' = the ąu-/ąj- diphthong onset (the simpler [0,1*(n-1)] fill), or None (no doubling)."""
     body = key.lstrip("-").rstrip("-").replace("|", "")
@@ -211,11 +211,15 @@ def _a5_eligible(key, phone, D, prev_phone=None):
     is_onset = key.endswith("-")
     pl = phone.replace("'", "")
     if is_coda and body and body[-1] in _A5_LONG_MONO and len(pl) == 1 and pl in _A5_LONG_MONO:
-        # a HIATUS o (a vowel immediately before it, e.g. chaosas a-o) is the SHORT lt_ilgiai 'O', not the long
-        # 'Oo'/'oo' -> it does NOT double; only a long /o:/ (no preceding vowel: word-initial oras, or after a
-        # consonant lova/žodis/milijonas) doubles. Verified vs the engine (chaosas o = [0x11], oras o = [0,1x10]).
+        # a HIATUS o (a vowel immediately before it) doubles only when the RAW transcr token is the LONG
+        # doubled 'oo'/'Oo'/'oO' (ios i-oo-s: engine a5=[0,1x10], capture_prosody-verified); the SHORT
+        # stressed 'O' (chaosas a-O) does NOT double. norm() collapses both to 'o', so the raw token (6th
+        # front-end field) carries the distinction. No preceding vowel (word-initial oras, or after a
+        # consonant lova/žodis/milijonas) doubles as before (chaosas o = [0x11], oras o = [0,1x10]).
         if prev_phone is not None and G.is_vowel(prev_phone):
-            return None
+            raw_long = raw is not None and raw.replace("'", "").lower() == "oo"
+            if not raw_long:
+                return None
         return "o" if (D is None or D >= _A5_DMIN) else None
     if is_onset and pl in _A5_AU_ONSET:
         return "au"
@@ -255,6 +259,7 @@ def gen_a5_list(word, gen=None):
     full = [t for t in G.front(word) if t[0] != "_"]
     phones = [t[0] for t in full]
     durs = [t[1] for t in full]                       # G.front's own per-phone ilgiai duration (diphthong-merged)
+    raws = [t[5] for t in full]                       # raw transcr token ('oo' vs 'O' for the hiatus-o gate)
     out, i = [], 0
     while i < len(fr):
         key = fr[i]['key']; pi = fr[i]['pi']
@@ -271,7 +276,8 @@ def gen_a5_list(word, gen=None):
             out.extend((kept + [0] * n)[:n])
         else:
             prev_phone = phones[pi - 1] if (pi is not None and pi >= 1) else None
-            cls = _a5_eligible(key, phone, D, prev_phone) if n <= 14 else None
+            raw = raws[pi] if pi is not None and pi < len(raws) else None
+            cls = _a5_eligible(key, phone, D, prev_phone, raw) if n <= 14 else None
             if cls == "o":
                 # long /o:/: _A5_LONGV_EXTRA(=10) extra epochs, a5[0]=0, rest over grains 1..n-1 by CENTERED
                 # rounding (the DF90 fraction). n=11 'o' coda -> [0,1x10] (== old, no passing word changes);
@@ -496,7 +502,7 @@ def _gen_engstr(word):
     """Reconstruct the engine's pipe-marked transcription string (engstr) from the front-end, DLL-free."""
     full = G.front(word)
     pre = bytearray(b" ")
-    for p, dr, b, st, pal in full:
+    for p, dr, b, st, pal, _raw in full:
         if p == "_":
             continue
         pre += _engstr_spell(p).encode("cp1257", "replace")
@@ -524,7 +530,7 @@ def _gen_engstr(word):
 def _gen_engstr_map(word):
     """Like _gen_engstr but also returns pos2phone: the phone INDEX each engstr byte belongs to (pipes -> -1),
     so a charpos can be mapped back to a front-end phone (and thence to its frames) for the arm-output sum."""
-    full = [(p, pal) for (p, dr, b, st, pal) in G.front(word) if p != "_"]
+    full = [(p, pal) for (p, dr, b, st, pal, _raw) in G.front(word) if p != "_"]
     pre = bytearray(b" ")
     src = [-1]                                       # phone index per pre-pipe byte (-1 = space/apostrophe)
     for pi, (p, pal) in enumerate(full):
@@ -556,6 +562,16 @@ def _gen_engstr_map(word):
     return bytes(engstr), pos2phone
 
 
+def _s7c_word(word):
+    """The word whose strlen the engine's s7c would see. Our i-hiatus reading feeds the engine-equivalent
+    DOUBLED word (ios is rendered as iios, see transcribe._i_hiatus), so the arm midpoint must use the
+    expanded length too -- gated exactly like transcribe (OOV only: a lexicon word never doubles)."""
+    from . import transcribe as LT
+    if len(word) >= 2 and word[0] in "iI" and word.lower() not in LT._load_lex():
+        return LT._i_hiatus(word)
+    return word
+
+
 def _gen_armc(word, engstr=None):
     """The se8-fall arm charpos, fully generative: armc = first VISITED engstr position >= floor(s7c/2), where
     s7c = len(word) (the engine's [+0x7c] = strlen of the input word) and a position is skipped iff it is a `|`
@@ -567,7 +583,7 @@ def _gen_armc(word, engstr=None):
     pipes = {k for k, c in enumerate(engstr) if c == 0x7c}
     dskip = {k for k in range(1, n) if engstr[k - 1] == 0x61 and engstr[k] in _DIPH_GLIDES}
     skip = pipes | dskip
-    seg = len(word) // 2
+    seg = len(_s7c_word(word)) // 2
     for k in range(n):
         if k not in skip and k >= seg:
             return k
