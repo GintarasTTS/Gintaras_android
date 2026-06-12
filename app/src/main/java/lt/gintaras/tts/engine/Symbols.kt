@@ -41,11 +41,24 @@ internal object Symbols {
     /** Replace every Unicode punctuation char (category P*) and spacing accent (Sk) with a space --
      *  the 'skip punctuation' reading every other TTS does. Clause delimiters survive (they only time
      *  pauses, they are never spoken) and the PUNCT_KEEP normalization symbols survive. This also keeps
-     *  stray ASCII quotes/brackets/hyphens from ever reaching the word pipeline. */
+     *  stray ASCII quotes/brackets/hyphens from ever reaching the word pipeline.
+     *  A delimiter BETWEEN TWO DIGITS (21:20, 8.5, 2026.06.12) becomes a word gap, not a clause pause:
+     *  the engine NAMES it there (dvitaškis/taškas/kablelis), so with naming off only the word boundary
+     *  remains -- a 0.45s clause pause inside a clock time read as a long break. */
     private fun stripPunct(text: String): String {
         val sb = StringBuilder(text.length)
-        for (ch in text) {
-            sb.append(if (ch !in DELIMS && ch !in PUNCT_KEEP && isPunctChar(ch)) ' ' else ch)
+        for ((i, ch) in text.withIndex()) {
+            val out = when {
+                ch in DELIMS -> {
+                    val digitCtx = i > 0 && text[i - 1].isDigit() &&
+                                   i + 1 < text.length && text[i + 1].isDigit()
+                    if (digitCtx) ' ' else ch
+                }
+                ch in PUNCT_KEEP -> ch
+                isPunctChar(ch) -> ' '
+                else -> ch
+            }
+            sb.append(out)
         }
         return sb.toString()
     }

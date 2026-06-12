@@ -11,8 +11,13 @@ from . import numerals as LN
 from . import symbols as SY
 
 SR = 22050
-LEAD, TAIL = 0.04, 0.22
-PAUSE = {",": 0.20, ";": 0.28, ":": 0.28, ".": 0.36, "!": 0.36, "?": 0.36, "—": 0.28}
+# Engine-measured silences (tts_cli, natural rate, gap between 'labas' and 'rytas'): word gap 660 samples,
+# comma 1318, . ; : ! ? 10579, em dash 11240; NO extra lead/tail beyond the render's own thr/5-ms tail.
+# Each clause render already ENDS with that 660-sample engine tail, so PAUSE holds only the REMAINDER
+# (1318-660=658 ~ 0.03s; 10579-660=9919 ~ 0.45s; 11240-660=10580 ~ 0.48s). The old 0.04/0.22 lead/tail and
+# 0.20-0.36 pauses padded every screen-reader chunk and read audibly slower than the original SAPI4 voice.
+LEAD, TAIL = 0.0, 0.0
+PAUSE = {",": 0.03, ";": 0.45, ":": 0.45, ".": 0.45, "!": 0.45, "?": 0.45, "—": 0.48}
 
 
 def _sil(sec):

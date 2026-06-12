@@ -93,5 +93,13 @@ internal object Numerals {
     private val DIGIT_RE = Regex("""\d+""")
 
     fun expandText(text: String): String =
-        DIGIT_RE.replace(text) { toWords(it.value) ?: it.value }
+        DIGIT_RE.replace(text) { m ->
+            var w = toWords(m.value) ?: return@replace m.value
+            // PradApdZod SEPARATES the numeral words from a directly-adjacent letter ('8a' -> 'AŠTUONI A',
+            // 'a8' -> 'A AŠTUONI', transcr_cli-verified) -- without the space the words fuse into one bogus
+            // token ('aštuonia'). Pad only against letters so pure-digit text stays byte-identical.
+            if (m.range.first > 0 && text[m.range.first - 1].isLetter()) w = " $w"
+            if (m.range.last + 1 < text.length && text[m.range.last + 1].isLetter()) w = "$w "
+            w
+        }
 }

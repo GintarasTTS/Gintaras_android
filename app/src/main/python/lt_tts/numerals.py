@@ -64,8 +64,23 @@ def to_words(n):
 import re as _re
 
 
+def _sub_run(m):
+    w = to_words(m.group())
+    if w is None:
+        return m.group()
+    # PradApdZod SEPARATES the numeral words from a directly-adjacent letter ('8a' -> 'AŠTUONI A',
+    # 'a8' -> 'A AŠTUONI', transcr_cli-verified) -- without the space the words fuse into one bogus
+    # token ('aštuonia'). Pad only against letters so pure-digit text stays byte-identical.
+    s = m.string
+    if m.start() > 0 and s[m.start() - 1].isalpha():
+        w = " " + w
+    if m.end() < len(s) and s[m.end()].isalpha():
+        w = w + " "
+    return w
+
+
 def expand_text(text):
     """Replace every run of digits in `text` with its Lithuanian numeral words (PradApdZod-exact), like the
     engine's PradApdZod preprocessor. Non-digit text is untouched. E.g. 'Turiu 21 obuolį' -> 'Turiu dvidešimt
     vienas obuolį'."""
-    return _re.sub(r"\d+", lambda m: to_words(m.group()) or m.group(), text)
+    return _re.sub(r"\d+", _sub_run, text)

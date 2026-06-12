@@ -6,14 +6,20 @@ package lt.gintaras.tts.engine
 internal object Speak {
 
     private const val SR = 22050
-    private const val LEAD = 0.04
-    private const val TAIL = 0.22
+    // Engine-measured silences (tts_cli, natural rate, gap between 'labas' and 'rytas'): word gap 660
+    // samples, comma 1318, . ; : ! ? 10579, em dash 11240; NO extra lead/tail beyond the render's own
+    // thr/5-ms tail. Each clause render already ENDS with that 660-sample engine tail, so PAUSE holds only
+    // the REMAINDER (1318-660=658 ~ 0.03s; 10579-660=9919 ~ 0.45s; 11240-660=10580 ~ 0.48s). The old
+    // 0.04/0.22 lead/tail and 0.20-0.36 pauses padded every screen-reader chunk and read audibly slower
+    // than the original SAPI4 voice.
+    private const val LEAD = 0.0
+    private const val TAIL = 0.0
     private const val SPELL_GAP = 0.05
     private const val CAPITAL_PITCH = 100
 
     private val PAUSE = mapOf(
-        ',' to 0.20, ';' to 0.28, ':' to 0.28,
-        '.' to 0.36, '!' to 0.36, '?' to 0.36, '—' to 0.28
+        ',' to 0.03, ';' to 0.45, ':' to 0.45,
+        '.' to 0.45, '!' to 0.45, '?' to 0.45, '—' to 0.48
     )
 
     private fun sil(sec: Double): IntArray = IntArray((sec * SR).toInt())

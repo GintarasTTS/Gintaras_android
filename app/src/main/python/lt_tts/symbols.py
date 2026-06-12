@@ -41,10 +41,19 @@ def _strip_punct(text):
     """Replace every Unicode punctuation char (category P*) and spacing accent (Sk: ` ´ ^ ¨) with a space --
     the 'skip punctuation' reading every other TTS does. Clause delimiters survive (they only time pauses,
     they are never spoken) and the _PUNCT_KEEP normalization symbols survive. This also keeps stray ASCII
-    quotes/brackets/hyphens from ever reaching the word pipeline, where they used to garble the token."""
+    quotes/brackets/hyphens from ever reaching the word pipeline, where they used to garble the token.
+    A delimiter BETWEEN TWO DIGITS (21:20, 8.5, 2026.06.12) becomes a word gap, not a clause pause: the
+    engine NAMES it there (dvitaškis/taškas/kablelis), so with naming off only the word boundary remains --
+    a 0.45s clause pause inside a clock time read as a long break."""
     out = []
-    for ch in text:
-        if ch in _DELIMS or ch in _PUNCT_KEEP:
+    n = len(text)
+    for i, ch in enumerate(text):
+        if ch in _DELIMS:
+            digit_ctx = (i > 0 and text[i - 1].isdigit()
+                         and i + 1 < n and text[i + 1].isdigit())
+            out.append(" " if digit_ctx else ch)
+            continue
+        if ch in _PUNCT_KEEP:
             out.append(ch)
             continue
         cat = unicodedata.category(ch)
