@@ -204,7 +204,8 @@ def render(word_upper, stress):
 
 
 if __name__ == "__main__":
-    import sys, lt_accent
+    import sys
+    from lt_tts import accent as lt_accent
     words = sys.argv[1:] or ["namas", "vakaras", "baltas", "medis", "auksas", "laukas", "ranka"]
     for w in words:
         st = lt_accent.accent(w)

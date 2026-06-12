@@ -10,8 +10,15 @@
 #     i.e. the unit's audio = concat(pool[fid] for each referenced fid, in order).
 #   The unit's CMapItem tag (03 80) is followed by ff ff ff ff (-1); a frame def's
 #   03 80 is followed by a positive fid -> that disambiguates the two uses of 03 80.
-import re, struct, numpy as np, wave, os
+import re, struct, wave, os
 from . import paths
+from . import _purepcm as _PN
+
+# numpy is used ONLY by the dev helpers synth_unit/save_wav; the runtime decode is pure-Python (_purepcm).
+try:
+    import numpy as np
+except ImportError:                          # pragma: no cover
+    np = None
 
 TAG = b'\x03\x80'
 
@@ -61,8 +68,8 @@ def build_frame_pool(d):
         raw = d[p+24:p+24 + nbytes]
         if len(raw) < nbytes:
             continue
-        a = np.frombuffer(raw, dtype='<i2')
-        if float(np.mean(np.abs(a))) >= 28000:   # reject only near-full-scale garbage
+        a = _PN.decode_pcm(raw)               # list-like int16 samples (pure Python, no numpy)
+        if _PN.mean_abs(a) >= 28000:          # reject only near-full-scale garbage
             continue
         fid = int(key)
         if fid not in pool:

@@ -4,13 +4,9 @@
 # `attr` buffer (both initially identical) and increments selected bytes of `attr`. The accent
 # matcher's mode-1 retraction walk reads (attr_char & 2) to locate syllable nuclei.
 #
-# Validated byte-for-byte against the live DLL via `transcr_cli --nuc` (see validate_nucleus()).
-import os, json, subprocess
+# Validated byte-for-byte against the live DLL during the RE (the oracle harness lives in engine/nucleus.py).
+import json
 from . import paths
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-CLI  = os.path.join(ROOT, "transcr_cli.exe")
 
 _CC = None
 def _cc():
@@ -89,22 +85,3 @@ def kirc_nucleus(token):
     w = list(("_" + token.upper() + " ").encode("cp1257"))
     a = [1] * len(w)
     return _mark(w, a)
-
-
-# ---- oracle validation ---------------------------------------------------------------------------
-def oracle(words):
-    out = subprocess.run([CLI, "--nuc"] + words, capture_output=True).stdout.decode("cp1257", "replace")
-    res = {}
-    cur = None
-    for line in out.splitlines():
-        line = line.rstrip()
-        s = line.strip()
-        if s.startswith("word \""):
-            cur = s.split("\"")[1]
-            pre = s.split("pre \"")[1].rstrip("\"")
-            res[cur] = {"pre": pre}
-        elif s.startswith("attr :"):
-            res[cur]["attr"] = [int(x, 16) for x in s[6:].split()]
-        elif s.startswith("word :"):
-            res[cur]["word"] = [int(x, 16) for x in s[6:].split()]
-    return res

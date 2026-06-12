@@ -1,20 +1,25 @@
 # -*- coding: utf-8 -*-
 # gintaras_ref.py - faithful Gintaras reference synthesiser, built from the hlas.dll RE.
 # Pipeline (see engine/RE_NOTES.md):
-#   text -> transcr4 PradApdZod+KircTranskr+ilgiai+tonai (via transcr_cli.exe --full)
+#   text -> the ported transcr4 front-end: transcribe (PradApdZod+KircTranskr) + duration (ilgiai)
+#           + tonai — all pure Python (frontend_free below)
 #        = phonemes + engine DURATIONS (ilgiai) + engine PITCH CONTOUR (tonai)
 #        -> demisyllable unit selection (engine map collapses to bare-base units)
 #        -> TD-PSOLA: stretch each unit to its duration AND resample each voiced pitch period to
 #           the tonai F0 contour (removes the recorded per-frame pitch jitter -> engine-smooth)
 #        -> overlap-add concat -> 22050 Hz PCM WAV.
 # ilgiai durations are percentages; tonai gives per-phoneme (pos%,F0) breakpoints, base F0 90 Hz.
-import os, sys, subprocess, wave
-import numpy as np
+import wave
+from . import _purepcm as _PN
 from . import voice as W
-# (voicepool_decode was the 16k Symbian path; not used in the 22050 runtime)
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-CLI  = os.path.join(ROOT, "transcr_cli.exe")
+# numpy is needed ONLY by the legacy TD-PSOLA path (synth/psola_render/xfade, retired -- the shipping engine
+# uses backend.synthesize). Import it lazily so the runtime has NO numpy dependency (NVDA / Android / iOS).
+try:
+    import numpy as np
+except ImportError:                          # pragma: no cover
+    np = None
+# (voicepool_decode was the 16k Symbian path; not used in the 22050 runtime)
 
 VOWELS = set("aeiou" "ąįęėųū" "oų")        # base vowels (cp1257 letters)
 LONGV  = set("ąįęėųūo")                     # LONG vowels (ogonek/macron + o): far more stretch than short
@@ -166,7 +171,7 @@ def merge_diphthongs(recs):
 
 def _recs_to_full(recs):
     """Shared post-processing: merge diphthongs + normalise each transcr4-format token to the unit
-    alphabet, tagging stress. Used by both frontend() (transcr4) and frontend_free() (pure-Python)."""
+    alphabet, tagging stress. Used by frontend_free() (the pure-Python front-end)."""
     out = []
     for tok, dur, bps in merge_diphthongs(recs):
         # transcr marks the STRESSED phone with an uppercase letter (e.g. labas long-a "aA", gintaras "I")
@@ -185,7 +190,7 @@ def _recs_to_full(recs):
     return out
 
 # ---------------------------------------------------------------- transcr4-FREE front-end
-# Same shape as frontend(), but NO transcr4.dll: phonemes come from lt_transcribe (rule G2P + the
+# NO transcr4.dll: phonemes come from lt_transcribe (rule G2P + the
 # stress lexicon extracted from transcr4), durations from lt_ilgiai (BIT-EXACT port of `ilgiai`),
 # pitch breakpoints from lt_tonai (faithful port of `tonai`). This makes the whole pipeline
 # text->audio run with only the Gintaras voice data (wtvlt1.dta) + pure Python.
@@ -206,10 +211,8 @@ def frontend_free(text):
     recs = [(t, d, bps) for (t, d, bps) in lt_tonai.tonai(dur_lines)]
     return _recs_to_full(recs)
 
-# pick the front-end: "transcr4" (uses transcr_cli.exe) or "free" (pure-Python ports)
-FRONTEND = "transcr4"
 def front(text):
-    return frontend_free(text)   # the pure-Python (DLL-free) front-end
+    return frontend_free(text)   # the pure-Python (DLL-free) front-end -- the ONLY front-end
 
 # transcr DOUBLED long vowels (aA/aa/Aa ...) map to the cp1257 ogonek chars the unit keys use
 # (debugger-verified: labas's long-a "aA" -> unit 'lą-', byte 0xe0). Single stressed (A/E/I) stay plain.
@@ -264,8 +267,8 @@ def build_f0(full, smooth=False):
                 xs.append(t0 + pos / 100.0 * dur); ys.append(float(f0))
         if not xs:
             xs, ys = [0.0, t], [90.0, 90.0]
-        order = np.argsort(xs); xs = np.array(xs)[order]; ys = np.array(ys)[order]
-        def f0_fn(tt): return float(np.interp(tt, xs, ys))
+        xs, ys = _PN.argsort_xy(xs, ys)
+        def f0_fn(tt): return _PN.interp(tt, xs, ys)
         return f0_fn, cum
     # smooth: one breakpoint per VOICED nucleus at its DAMPED mean tonai f0 (empty-bp -> previous level/hold).
     # The damp (incl. the per-syllable stress boost) is baked IN here so obstruent consonants interpolate the
@@ -281,8 +284,8 @@ def build_f0(full, smooth=False):
         xs.append((t0 + t1) / 2.0); ys.append(damp(raw, st and is_vowel(p)))
     if not xs:
         xs, ys = [0.0, t], [F0_BASE, F0_BASE]
-    xs = np.asarray(xs); ys = np.asarray(ys)
-    def f0_fn(tt): return float(np.interp(tt, xs, ys))
+    xs, ys = _PN.argsort_xy(xs, ys)
+    def f0_fn(tt): return _PN.interp(tt, xs, ys)
     return f0_fn, cum
 
 # ---------------------------------------------------------------- demisyllable selection (engine-exact)
@@ -406,7 +409,15 @@ def coda_unit(v, c, units):
 def standalone_unit(c, units):
     """Standalone consonant unit (final stop, cluster nasal, leading fricative of an onset cluster)."""
     cs = _cs(c)
-    return _first([cs, cs + "-", "-" + cs], units)
+    u = _first([cs, cs + "-", "-" + cs], units)
+    if u is None and cs == "j":
+        # The voice has NO standalone-j recording (j exists only inside diphthong offglides and Cv onsets),
+        # and the ENGINE simply SKIPS a cluster/word-final bare j ("asj"/"jtas": bit-exact with NOTHING
+        # rendered for the j). For unknown letter-strings every letter must stay audible (a screen-reader
+        # user must hear ALL of a nonsense token), so render the bare j as its vocalic value: a short
+        # i-glide (the bare 'i' body unit). Real words never hit this (j is always next to a vowel).
+        u = _first(["i", "i|"], units)
+    return u
 
 def _kv(v):
     # A DIPHTHONG nucleus (len 2) carries its FULL ilgiai duration (the merged a+u value), so it scales
@@ -434,6 +445,7 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
     elems = []
     i = 0
     prev_pipe = False                              # did the previous vowel body use the i|/u| pipe form?
+    prev_bare = False                              # was the previous vowel a BARE body (no consonant onset)?
 
     def _tag(pi):                                  # tag every elem appended since the last _tag with phone pi
         if meta is not None:
@@ -448,6 +460,7 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
             # vowel with NO onset consonant (word-initial or hiatus): bare body / diphthong onset+body.
             # Rendered to its own ilgiai*K_DUR (per-phoneme duration, like the engine).
             prev_pipe = False
+            prev_bare = True                       # bare vowel body -> a following obstruent coda backs off
             wi_falling = (len(p) == 2 and p[1] in FALLING_GLIDE
                           and not (p[1] in ("u", "w", U_OG) and p[0] in LONGV))
             if wi_falling:
@@ -480,14 +493,15 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                 # ONSET consonant + its vowel: Cv- (native) then the body (-Cv / v|), consumed together
                 v, vst, vdur, vf0 = nxt, stresses[i + 1], durs[i + 1], f0s[i + 1]
                 kv = _kv(v); v1 = v[0] if len(v) == 2 else v
-                # LAST-VOWEL short pipe-vowel: the voice recorded a dedicated combined ONSET `Cv|--`
-                # (eiti ti|--, naktis/dantis ti|--, lu|--) -- a clean 2-frame take of the C-into-pipe-vowel
-                # transition the engine uses for the word's FINAL i/u syllable, whether the vowel is the last
-                # phoneme (eiti) OR is followed by a coda consonant (naktis n-a-k-t-i-s -> ti|-- + i| + s).
-                # Gated on the unit EXISTING (only lo|--/lu|--/ti|-- recorded), so consonants without a combo
-                # back off to the plain `Cv-` (brolis li|-- absent -> li-; the `i|`/`u|` pipe body still follows).
-                last_vowel = not any(is_vowel(phones[t]) for t in range(i + 2, n))
-                combo = (c + v + "|--") if (len(v) == 1 and v in "iu" and last_vowel) else None
+                # SHORT-i combined onset `Ci|--` (ti|--): a clean 2-frame take of the C-into-pipe-i
+                # transition. Engine-verified 2026-06-12 (capture_units grid): the engine uses ti|-- for
+                # EVERY t+i syllable, regardless of position -- final (eiti, naktis/dantis with coda) AND
+                # non-final (tikras/tinas/tilo/optika) -- so there is NO last-vowel gate. The OTHER recorded
+                # combos lo|--/lu|-- are NEVER used by the engine (stalu/galu final-lu and metalo/salos/tilo
+                # final-lo all play the plain lu-/lo- onset+body pair; the old `v in 'iu' and last_vowel`
+                # gate wrongly fired lu|-- on stalu/galu). Still gated on the unit existing (only ti|--
+                # recorded for i), so brolis li|-- absent -> li- backs off as before.
+                combo = (c + v + "|--") if (len(v) == 1 and v == "i") else None
                 # COMBINED consonant + rising-diphthong pipe unit `Cuo|`/`Cie|` (juodas juo|): the voice recorded
                 # the whole C-into-diphthong syllable as ONE stretchable body -> NO separate onset. Gated on the
                 # unit existing (only juo| so far), so other C+uo/ie back off to the onset+body pair below.
@@ -542,6 +556,7 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                     bod = body_unit(c, v, _use_pipe(phones, i + 1, v, prev_soft) or soft_finalU, units)
                     if bod: chain.append(bod); pbod = bod
                 prev_pipe = bool(pbod and pbod.endswith("|"))
+                prev_bare = False                  # dashed/pipe body -> following coda stays standalone
                 # PER-PHONEME DURATION (matches the engine, measured vs tts_cli ground truth): every
                 # phoneme is rendered to its OWN ilgiai*K duration (K_DUR uniform -- ilgiai already encodes
                 # vowel length, so there is NO extra long-vowel multiplier). The consonant gets ic=durs[i],
@@ -600,7 +615,10 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                 # consonant the engine keeps the `-Vl` coda (kalba l-b(a) -> `-al`). Only `l|` is recorded (no
                 # r|/n|/m|), so this is l-specific; word-final l or l-before-vowel is unaffected.
                 nxt_soft = (palatals[i + 1] if (palatals is not None and i + 1 < len(palatals)) else False)
-                l_pipe = (c in "lL" and "l|" in units and nxt not in ("", "_") and not is_vowel(nxt) and nxt_soft)
+                # (nxt is None for a WORD-FINAL l -- "all"/"excel"/spelled letter "el" -- which must take the
+                #  coda/standalone path below, never l|; the missing None guard used to crash the whole word.)
+                l_pipe = (c in "lL" and "l|" in units and not is_vowel(nxt)
+                          and nxt_soft) if nxt not in (None, "", "_") else False
                 if l_pipe:
                     elems.append(("dip", "l|", _btarget(dur * K_DUR), True, True, f0))
                     _tag(i); i += 1; prev = "l"; prev_pipe = True; continue
@@ -608,12 +626,20 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                 if prev and is_vowel(prev) and not prev_pipe and not nxt_unburst and not n_before_k \
                         and not r_before_t:
                     # try `-Vc` for the exact vowel, then its SHORT form (gatvė à-coda -> the voice only recorded
-                    # the plain `-at`, not `-àt`), then `-oc` for a coda-u (puikus -os, auksas -ok).
+                    # the plain `-at`, not `-àt`), then `-oc` for a coda-u (puikus -os, auksas -ok), then the
+                    # GENERIC `-ac` for an OBSTRUENT coda after a BARE vowel body (engine-verified grid
+                    # 2026-06-12: word-initial i/e/y + k/p/t/f/z all back off to the a-coda -- ikso/ikta/ipta/
+                    # itka/ifsa/izga/ekta/ykta engine = '-ak'/'-ap'/...; xkcd's i-k = '-ak'). THREE gates, each
+                    # engine-confirmed: SONORANT codas never back off (imta/ilka/irgi = bare m/l/r); after a
+                    # DASHED `-Cv` body the consonant stays standalone (wjak '-je'+k, mxyzptlk '-sy'+s); after
+                    # a pipe body likewise (miksas/ribta, the prev_pipe gate above).
                     coda_cands = ["-" + pv + c]
                     if pv in LONG2SHORT:
                         coda_cands.append("-" + LONG2SHORT[pv] + c)
                     if pv == "u":
                         coda_cands.append("-o" + c)
+                    if c not in SONOR and prev_bare:
+                        coda_cands.append("-a" + c)
                 full_coda = _first(coda_cands, units)
                 if full_coda:
                     elems.append(("dip", full_coda, None, is_voiced(c), is_voiced(c), f0))

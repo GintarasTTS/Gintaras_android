@@ -34,7 +34,7 @@ def _is_letter_token(word):
         return True
     try:
         from . import transcribe
-        return lt_transcribe._spell_out(word) is not None      # vowelless abbreviation (cd/lt/www)
+        return transcribe._spell_out(word) is not None         # vowelless abbreviation (cd/lt/www)
     except Exception:
         return False
 
@@ -44,7 +44,11 @@ def synth_text(text, rate=None, pitch=None, capital_pitch=True,
     text = SY.expand(text, read_emoji=read_emoji, read_cyrillic=read_cyrillic,
                      read_latvian=read_latvian)         # emoji / Cyrillic / Latvian -> spoken Lithuanian
     text = LN.expand_text(text)                                  # digits -> numeral words
-    out = list(_sil(LEAD))
+    # Synthetic pause scale: the engine scales ALL its silences with the rate (duration ~ a1), so our own
+    # LEAD/TAIL/clause pauses must follow -- a fast rate with fixed 0.2-0.36s pauses is what made fast NVDA
+    # reading feel slower than the original SAPI4 voice. rate=None -> 1.0 (natural, unchanged).
+    pf = 1.0 if rate is None else GS.rate_thr(rate) / 150.0
+    out = list(_sil(LEAD * pf))
     # split into (clause, following-delimiter) pairs so a clause ending in '?' gets the QUESTION RISE contour
     parts = re.split(r"([.,;:!?—])", text)
     for k in range(0, len(parts), 2):
@@ -60,19 +64,32 @@ def synth_text(text, rate=None, pitch=None, capital_pitch=True,
                 for t in toks:
                     lp = CAPITAL_PITCH if t.isupper() else pitch
                     try:
-                        out += list(GS.synthesize(PF.build_plan_phase2(t), rate=rate, pitch=lp))
-                        out += _sil(_SPELL_GAP)
+                        out += list(GS.synthesize(PF.build_plan_phase2(t, rate=rate, pitch=lp),
+                                                  rate=rate, pitch=lp))
+                        out += _sil(_SPELL_GAP * pf)
                     except Exception:
                         pass
             else:
                 question = (delim == "?")                        # terminal yes/no-question rise on '?'
                 try:
                     # PER-WORD se8 contour (cont.48): each word its own fall, phrase-final word base 6.
-                    out += list(GS.synthesize(PF.build_plan_phrase(clause, question=question),
+                    # rate+pitch go into the BUILDER too: the s94 seed and the se8 arm samples must sit on
+                    # the actual epoch schedule (both shift it).
+                    out += list(GS.synthesize(PF.build_plan_phrase(clause, question=question,
+                                                                   rate=rate, pitch=pitch),
                                               rate=rate, pitch=pitch))
                 except Exception:
-                    pass
+                    # ONE unbuildable word must not silence the whole line (the old per-clause swallow
+                    # made any failing word eat its entire sentence): retry word by word, dropping only
+                    # the word(s) that actually fail.
+                    for t in toks:
+                        try:
+                            out += list(GS.synthesize(PF.build_plan_phase2(t, rate=rate, pitch=pitch),
+                                                      rate=rate, pitch=pitch))
+                            out += _sil(0.02 * pf)
+                        except Exception:
+                            pass
         if delim:
-            out += _sil(PAUSE.get(delim, 0.12))
-    out += _sil(TAIL)
+            out += _sil(PAUSE.get(delim, 0.12) * pf)
+    out += _sil(TAIL * pf)
     return out

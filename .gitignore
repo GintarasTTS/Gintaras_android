@@ -4,3 +4,7 @@ app/build/
 *.iml
 .idea/
 local.properties
+
+# jvmtest scratch outputs
+jvmtest/kotlin_out.tsv
+app/src/main/python/lt_tts/__pycache__/

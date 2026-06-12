@@ -26,38 +26,58 @@ BASE_P = 22050 // 100        # = 220 added to e4 per voiced E410 pass (=[+0x1ad7
 USE_PSOLA_PITCH = False       # pitch method: False = engine-LEGACY period-scaling (default); True = formant-
                               # preserving PSOLA repitch (raising only). KEPT for future use. (cont.56/57)
 
-# ---- pitch / rate control ----------------------------------------------------------------------
-# hlas.dll exposes SetRate/SetPitch but only RATE actually drives synthesis (pitch is a reported-but-unwired
-# stub); see memory/pitch-rate-control.md. RATE is the EPOCH-GATE THRESHOLD: instrumenting sub_1000E410 (hook
-# _e410.bin field a1) shows the e4 clock advances by 220/pass at EVERY rate -- what rate changes is the gate
-# threshold a1 = [+0xd4] = 30000/rate_period (natural=150). Lower threshold => the gate closes sooner =>
-# fewer epochs per frame => shorter (faster) audio. Captured: engine rate=400 => a1=37 => 0.51x. We reproduce
-# that EXACTLY by scaling THR; pitch is IMPLEMENTED FRESH (period scale) since the DLL never wired it.
-DMIN, DMAX, DBASE = 100, 800, 200            # rate period [+0x1ad7c]/[+0x1ad80]/Dbase [+0x1ad84] (neutral=Dbase)
-_PMID = 232.0                                # pitch_period(50) = the neutral period (~95 Hz center)
+# ---- pitch / rate control (SAPI4-exact; fully disassembled 2026-06-11) --------------------------
+# hlas.dll SetRate/SetPitch DECODED (sub_10010C00 / sub_10010A50, Gintaras mode flag [+0x1ad68]=1 = RAW units):
+#   SetRate(S):  S = speed in the mode's [Dmin=100 .. Dmax=800] WPM-style units (0 sentinel = min = 100,
+#                0xFFFF = max = 800; these are SAPI4's TTSATTR_MINSPEED/MAXSPEED); ebp = trunc(200000/S);
+#                a1 = [+0xd4] = trunc(trunc(150*ebp/200)/10).  S=100 -> a1=150 (the bit-exact baseline every
+#                capture ran at, because tts_cli passes rate=0 = the MIN sentinel); S=450 -> 33; S=800 -> 18.
+#   SetPitch(H): H = pitch in Hz, mode range [75..130] (0 sentinel = 75 Hz, 0xFFFF = 130 = TTSATTR_MIN/MAXPITCH);
+#                stores P_DC = [+0xdc] = trunc(22050/H) and resets the s90/s94 contour state.  NOT a stub: the
+#                period generator sub_1000FC80 computes period = clamp(contour + P_DC, 169, 294) -- the "294"
+#                in the old _period() was P_DC at the 75 Hz sentinel, not a constant.  At the utterance-initial
+#                fda0 (reseed flag) s94 = P_DC - trunc(22050/[+0x1ad78]=100Hz) = P_DC - 220, then one IIR step.
+#                (All verified bit-exact vs tts_cli --one-rp captures at 80/90/103/110/120/130 Hz.)
+# A SAPI4 host (NVDA's sapi4 driver) read min/max via the sentinels and mapped its 0..100 sliders LINEARLY:
+#   rate r ->  SpeedSet(round(100 + 7r));   pitch p -> PitchSet(round(75 + 0.55p))
+# so those exact mappings below make the NVDA sliders reproduce the original SAPI4 voice 1:1.
+DMIN, DMAX, DBASE = 100, 800, 200            # SetRate bounds/base [+0x1ad7c]/[+0x1ad80]/[+0x1ad84]
+PDC_NAT = 294                                # P_DC at the 75 Hz sentinel = every bit-exact capture's setting
+PDC_DEF_PERIOD = 220                         # trunc(22050 / [+0x1ad78]=100 Hz): the s94 seed anchor
 
-# NEUTRAL (bit-exact) sentinel: rate=None / pitch=None => no scaling, byte-identical to the engine default
-# (rate_period=Dbase=200 => THR=150; pitch is an unwired stub => factor 1.0).
+# NEUTRAL (bit-exact) sentinels: rate=None -> THR 150 (= SetRate min sentinel, the captured baseline);
+# pitch=None -> P_DC 294 (= SetPitch min sentinel, ditto). Both byte-identical to every prior validation.
 def rate_thr(r):
-    """Host rate r in 0..100 -> the epoch-gate threshold THR = round(30000/rate_period) (engine field a1/[+0xd4]).
-    Centered so r=50 = neutral (rate_period=Dbase=200 => THR=150 => bit-exact). r<50 lowers rate_period toward
-    Dmin=100 (THR up to 300 => slower); r>50 raises it toward Dmax=800 (THR down to ~37 => faster, ~0.5x at 100,
-    matching the engine's measured rate=400). r=None -> THR=150 (natural)."""
+    """NVDA slider r (0..100) -> the epoch-gate threshold a1/[+0xd4], EXACTLY as NVDA's SAPI4 driver +
+    hlas SetRate produced it: wpm = round(100+7r) (linear over the engine-reported [100..800]), then the
+    engine's integer chain ebp=trunc(200000/wpm); a1=trunc(trunc(150*ebp/200)/10). Anchors: r=0 -> 150
+    (bit-exact natural = the SAPI4 minimum), r=43 -> 37, r=50 -> 33 (the SAPI4-host default position),
+    r=100 -> 18 (the SAPI4 maximum). r=None -> 150."""
     if r is None:
         return THR
-    if r <= 50:
-        rate_period = DMIN + (DBASE - DMIN) * r / 50.0          # 100..200 over r=0..50
-    else:
-        rate_period = DBASE + (DMAX - DBASE) * (r - 50) / 50.0  # 200..800 over r=50..100
-    return round(30000.0 / rate_period)
+    wpm = int(round(100 + 7.0 * r))
+    ebp = 200000 // wpm
+    return max(1, (150 * ebp // 200) // 10)
 
-def pitch_factor(p):
-    """Host pitch p in 0..100 -> F0-period multiplier. Intended engine curve pitch_period(p)=294.55-1.25*p
-    (p=0->75Hz, 50->95Hz, 100->130Hz), normalised so p=50 is identity. <1 raises pitch, >1 lowers it.
-    p=None or p=50 -> 1.0 (identity; bit-exact)."""
+def pitch_pdc(p):
+    """NVDA slider p (0..100) -> the pitch base period P_DC ([+0xdc]), EXACTLY as NVDA's SAPI4 driver +
+    hlas SetPitch produced it: Hz = round(75 + 0.55p) (linear over the engine-reported [75..130]), then
+    P_DC = trunc(22050/Hz). Anchors: p=0 -> 294 (75 Hz, bit-exact natural = the SAPI4 minimum), p=50 ->
+    Hz 102 -> 216 (the SAPI4-host default position), p=100 -> 169 (130 Hz max). p=None -> 294.
+    The synthesis period is clamp(s94 + P_DC, 169, 294) (sub_1000FC80), so P_DC shifts the whole F0 base
+    while the s90/s94/se8 contour offsets stay untouched -- the engine's own pitch mechanism, no resampling."""
     if p is None:
-        return 1.0
-    return round(294.55 - 1.25 * p) / _PMID
+        return PDC_NAT
+    hz = int(round(75 + 0.55 * p))
+    hz = 75 if hz < 75 else 130 if hz > 130 else hz
+    return 22050 // hz
+
+def pitch_s94_seed(pdc):
+    """The utterance-initial s94: fda0's reseed (s94 = P_DC - 220) followed by its own IIR step toward the
+    base s90=-20 (sub_1000FDA0 @1000FEF9/1000FF53; the seed write precedes the step in the same call).
+    pdc=294 -> 68 (the value every natural capture showed); verified exact for 7 pitches 75..130 Hz."""
+    s0 = pdc - PDC_DEF_PERIOD
+    return _iir(s0, -20)
 
 
 def _trunc(a, b):            # truncate toward zero (the FPU round helper sub_10022d90 sets RC=11)
@@ -71,8 +91,8 @@ def _iir(s94, s90):          # sub_1000FDA0 pitch smoother (per placed epoch)
     return s94 + x
 
 
-def _period(s94):            # sub_1000FC80 voiced period = clamp(s94 + maxP, minP, maxP)
-    v = s94 + 294
+def _period(s94, pdc=PDC_NAT):   # sub_1000FC80 voiced period = clamp(s94 + P_DC, 169, 294); P_DC=[+0xdc]
+    v = s94 + pdc                # (the default 294 = the SetPitch min sentinel every capture ran at)
     return 169 if v < 169 else 294 if v > 294 else v
 
 
@@ -151,7 +171,10 @@ def _e6b0(native, target, prev_last):
 # SEC units of cumulative voiced sample position, clamped to [-s108, S104], and only after the post-stress
 # release node arms it (sd2 0->20, s104 0->160). In gen_synth's f8 (cumulative period) coordinate:
 SE8_SD2 = 20            # [self+0xd2] step per ramp iteration
-SE8_SEC = 100          # [self+0xec] sample-position units per iteration
+SE8_SEC = 100          # [self+0xec] chase step AT THE NATURAL a1=150. [+0xec] is the RATE-SCALED frame
+                       # duration (sub_1001073D: base_dur * a1 / 75, base_dur=50) -> the burst chase fires
+                       # proportionally more often at faster rates: se8_sec = 50*thr//75 (150->100, 33->22,
+                       # 18->12). Verified: namas @450wpm 44.98% -> audible-exact with the scaled chase.
 SE8_HI = 160           # [self+0x104] high clamp (=> s90 reaches 0)
 SE8_BASE = 20          # s118 + s100 (both 10)
 
@@ -196,7 +219,7 @@ def synthesize(plan, rate=None, pitch=None, _frame_rpos=None):
     # rate=None => use the capture's own a1 (natural=150 => bit-exact; a FAST capture carries its THR<150 =>
     # renders fast bit-exact). An explicit host rate (0..100) overrides via rate_thr (50=neutral).
     thr = getattr(plan, 'cap_thr', THR) if rate is None else rate_thr(rate)
-    pfac = pitch_factor(pitch)                      # pitch=None/50 -> 1.0 (bit-exact)
+    pdc = pitch_pdc(pitch)                          # pitch=None -> 294 (the SetPitch min sentinel; bit-exact)
     # release_rpos: arm the se8 fall at an EXACT output sample (the engine's true arm = cumulative output of
     # the chars before arm_char, recovered from the per-grain char hook). Overrides the per-frame 'release'
     # flag. None => frame-based arm / captured contour (the bit-exact demo path is unaffected => 14/14 held).
@@ -219,18 +242,15 @@ def synthesize(plan, rate=None, pitch=None, _frame_rpos=None):
     flush_idx = set()                        # grain indices that begin a fresh ring block (word boundaries)
     prev_silence = False                     # was the previous frame an inter-word silence gap?
 
-    # PITCH method: DEFAULT is the engine-LEGACY period-scaling (USE_PSOLA_PITCH=False). The formant-preserving
-    # PSOLA repitch is KEPT (set gen_synth.USE_PSOLA_PITCH=True, or plan._psola_pitch=True, to use it for
-    # RAISING) but OFF by default per user preference for the legacy Gintaras pitch. pitch=None -> bit-exact
-    # either way. _psola only ever runs for RAISING (pfac<1).
-    _use_psola = getattr(plan, '_psola_pitch', None)
-    if _use_psola is None:
-        _use_psola = USE_PSOLA_PITCH
-    _psola = (pfac < 1.0) and _use_psola
-    _ppfac = 1.0 if _psola else pfac
-
+    # PITCH: the engine's own mechanism -- P_DC base-shift inside the [169,294] clamp (sub_1000FC80), exactly
+    # what hlas SetPitch does. No resampling, no period scaling. (The formant-preserving PSOLA repitch
+    # _psola_repitch is KEPT in the file for future use but is no longer wired -- the true engine mechanism
+    # subsumed the old pitch_factor scaling it piggybacked on.)
     def pper(s):                             # voiced period for epoch placement + grain target.
-        return max(60, round(_period(s) * _ppfac))  # _ppfac=1.0 -> _period (>=169) verbatim => bit-exact
+        return _period(s, pdc)               # pdc=294 (pitch=None) => the old _period verbatim => bit-exact
+
+    se8_sec = 50 * thr // 75                 # [+0xec] = base_dur(50) * a1 / 75: the rate-scaled chase step
+                                             # (thr=150 -> 100 = the validated natural constant, bit-exact)
 
     def _se8_burst():
         # fda0 tail loop (sub_1000FFAD): se8 += sd2 while s_e0(=rpos) > s_f0 + s_ec, clamped to [0, s104].
@@ -239,9 +259,9 @@ def synthesize(plan, rate=None, pitch=None, _frame_rpos=None):
         sd2 = SE8_SD2 if (release is not None and rpos >= release) else 0
         hi = SE8_HI if sd2 else 0
         c = 0
-        while rpos > s_f0 + SE8_SEC and c < 50:
+        while rpos > s_f0 + se8_sec and c < 50:
             se8 = SE8_HI if se8 + sd2 > hi else (0 if se8 + sd2 < 0 else se8 + sd2)
-            s_f0 += SE8_SEC
+            s_f0 += se8_sec
             c += 1
 
     for k, fr in enumerate(frames):
@@ -319,28 +339,41 @@ def synthesize(plan, rate=None, pitch=None, _frame_rpos=None):
                     _se8_burst()
                 s94l = _iir(s94l, s90e)
         else:
+          # LITERAL sub_1000E410 epoch loop (disassembly 2026-06-11). Two engine quirks the old approximation
+          # missed (caused boundary-epoch mis-attribution at shifted pitch/rate, e.g. namas @90 Hz):
+          #   * the CONTINUE-gate after emitting an epoch is trunc((f8 + JUST-EMITTED per)*100/e4) < thr --
+          #     the engine re-fetches fc80 BEFORE that epoch's fda0 IIR, so the gate sees the emitted period,
+          #     not the next one;
+          #   * the next epoch EMITS that same pre-IIR fetch (the period lags one IIR step: P0,P1,P1,P2,...).
+          #   * a pass whose first gate fails yields NO epoch (continue to the next a5 pass) -- the engine has
+          #     NO force-one for voiced frames (its count=1 floor at E667 is only for a2==0 verbatim frames,
+          #     which our pause path emits directly). The old force never fired at neutral; removed.
+          per = pper(s94l)                       # frame-initial fetch (E474/E47A: s94 from the previous frame)
+          cnt = 0
           for _ in range(fr.get('a5', 0) + 1):
             e4 += BASE_P
-            per = pper(s94l)
-            cnt = 0
+            if _trunc((f8 + per) * 100, e4) > thr:
+                continue                         # no epoch this pass (e4 keeps growing)
+            first = True
             while cnt < 12:
-                cand = _trunc((f8 + per) * 100, e4)
-                gate = (cand <= thr) if cnt == 0 else (cand < thr)
-                if not gate:
-                    break
                 pers.append(per)
                 s90e = ((se8 >> 3) - base) if ramp else s90   # s90 from se8 BEFORE this epoch's burst
                 f8 += per
                 rpos += per
                 cnt += 1
+                cand = _trunc((f8 + per) * 100, e4)   # continue-gate with the JUST-EMITTED period
                 if ramp:
                     _se8_burst()             # this epoch's fda0 se8 burst (s_f0 chases the advanced s_e0)
-                s94l = _iir(s94l, s90e)
-                per = pper(s94l)
-            if cnt == 0 and thr >= THR:          # gate failed: at neutral/slower force one (no f8/s94 advance);
-                pers.append(pper(s94l))          # at a faster THR the engine instead DROPS the frame (0 epochs
-                                                 # -> no grain) -- this is the rate speed-up. (Never fires at
-                                                 # neutral for any passing word, so the bit-exact path is intact.)
+                if first:                    # pass-initial epoch: refetch AFTER its fda0 (E595->E5A0) -> post-IIR
+                    s94l = _iir(s94l, s90e)
+                    per = pper(s94l)
+                    first = False
+                else:                        # inner epochs: the E5C5 refetch PRECEDES that epoch's fda0 -> the
+                    nper = pper(s94l)        # period lags one IIR step (engine emits P0,P1,P1,P2,...)
+                    s94l = _iir(s94l, s90e)
+                    per = nper
+                if not (cand < thr):
+                    break
         total = len(pers)
         for i, tgt in enumerate(pers):
             if total > 1 and nxt is not None:
@@ -354,10 +387,17 @@ def synthesize(plan, rate=None, pitch=None, _frame_rpos=None):
         s94 = s94l
         if _frame_rpos is not None:
             _frame_rpos.append(sum(len(x) for x in grains))   # cumulative GRAIN-length after this (voiced) frame
-    for n in plan.tail_silence:
-        grains.append([0] * n)
-    if _psola:                                # formant-preserving repitch (RAISING only; OFF by default)
-        grains, flush_idx = _psola_repitch(grains, flush_idx, pfac)
+    if rate is None:
+        for n in plan.tail_silence:              # capture/natural path: verbatim (bit-exact)
+            grains.append([0] * n)
+    else:
+        # EXACT engine law (8-point fit vs hooked DLL tails at S=200..1000, 2026-06-11): the utterance-final
+        # silence flush = trunc(a1/5) MILLISECONDS -> samples = 22050*(a1//5)//1000. (a1=150 -> 30 ms = 661 =
+        # the natural [256,256,149]; 75->330, 49->198, 42->176, 33->132, 24->88, 18->66, 15->66 -- all exact.)
+        # Emitted as one zero grain (grain boundaries inside trailing zeros are inaudible, past every declick).
+        tot = 22050 * (thr // 5) // 1000
+        if tot > 0:
+            grains.append([0] * tot)
     return H.render_from_grains(grains, flush_idx=flush_idx)
 
 

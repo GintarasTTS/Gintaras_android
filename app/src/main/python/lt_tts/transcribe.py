@@ -8,11 +8,8 @@
 # accentuation lexicon (75k+ stems) in its .data. Without porting that lexicon + lookup we
 # cannot place stress; this module emits the unstressed (lowercase) phoneme stream and a simple
 # default-stress guess. validate_against_transcr4() measures both identity- and exact-match.
-import sys, os, subprocess, tempfile
+import os
 from . import paths
-
-ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
-CLI = os.path.join(ROOT, "transcr_cli.exe")
 
 # cp1257 Lithuanian letters
 LT = {"ą": "a~", "č": "č", "ę": "e~", "ė": "ė", "į": "i~",
@@ -99,8 +96,8 @@ def _spell_data():
     if _LETPHON is None:
         try:
             from . import spell_data
-            _LETPHON = lt_spell_data.LETTER_PHON
-            _SPVOW = getattr(lt_spell_data, "SPELLED_VOWELS", {})
+            _LETPHON = spell_data.LETTER_PHON
+            _SPVOW = getattr(spell_data, "SPELLED_VOWELS", {})
         except Exception:
             _LETPHON, _SPVOW = {}, {}
     return _LETPHON, _SPVOW
@@ -121,6 +118,9 @@ def _spell_out(word):
         return ["_"] + list(spvow[word.lower()]) + ["_"]
     if any(c in _VOWELS_SP for c in word):            # has a vowel -> normal (NOT a vowelless abbreviation)
         return None
+    lex = _load_lex()
+    if word.lower() in lex:                           # engine's own spelled output (bit-exact, incl. the
+        return list(lex[word.lower()])                # cross-letter assimilation letphon concat can't model)
     out = ["_"]
     for c in word.lower():
         if c in letphon:
@@ -132,11 +132,12 @@ def _spell_out(word):
 
 
 def _xq_normalize(word):
-    """x and q are NOT Lithuanian letters; in text they take their phonetic value (the engine RE: x -> 'ks'
-    taxi/oxidas/sax, q -> 'k' iraqas/quizas). Substitute at the GRAPHEME level so the existing rules handle the
-    rest (case-preserving). NOTE: a STANDALONE letter is spelled by NAME (x='iks', q='kū') -- a separate
-    spell-mode path; this is the in-word reading. No-op for words without x/q."""
-    if "x" not in word and "X" not in word and "q" not in word and "Q" not in word:
+    """x, q and w are NOT Lithuanian letters; in text they take their phonetic value (the engine: x -> 'ks'
+    taxi/oxidas/sax, q -> 'k' iraqas/quizas, w -> 'v' per the ruleslt.rul `Dw v` digraph rule: windows ->
+    vindovs). Substitute at the GRAPHEME level so the existing rules handle the rest (case-preserving). NOTE: a
+    STANDALONE letter is spelled by NAME (x='iks', q='kū', w='dviguba vė') -- the separate spell-mode path runs
+    first; this is the in-word reading. No-op for words without x/q/w."""
+    if not any(c in word for c in "xXqQwW"):
         return word
     out = []
     for ch in word:
@@ -148,9 +149,30 @@ def _xq_normalize(word):
             out.append("k")
         elif ch == "Q":
             out.append("K")
+        elif ch == "w":
+            out.append("v")
+        elif ch == "W":
+            out.append("V")
         else:
             out.append(ch)
     return "".join(out)
+
+
+_I_HIATUS = set(u"oōuūų")                          # o/u-family vowels after word-initial i- (user-scoped:
+                                                   # only io-/iu- starts; ie- stays the native diphthong)
+
+
+def _i_hiatus(word):
+    """Word-INITIAL io/iu ("ios", "iOS", "Iowa"): transcr4 treats the i as a bare palatalization mark and
+    DELETES it (DLL-verified: ios/iOS/Ios -> 'oo s', io -> 'oo') -- a whole letter vanishes. No native
+    Lithuanian word starts io/iu (j- is used), so this only hits loanwords/names. Fix (user-tuned): read
+    the i as a FULL SEPARATE vowel, "i os" -- NOT a j glide and NOT palatalized. Done by DOUBLING the i
+    ("ios" -> "iios"): the first i survives as the vowel, the second is consumed by the engine's own
+    palatalization rule -> 'i oo s'. Applied ONLY on the OOV path (after the lexicon misses) so no lexicon
+    word can change; mid-word i+vowel stays the engine's palatalization rule (broliai etc.)."""
+    if len(word) >= 2 and word[0] in "iI" and word[1].lower() in _I_HIATUS:
+        return word[0] + "i" + word[1:]
+    return word
 
 
 def transcribe(word):
@@ -170,6 +192,10 @@ def transcribe(word):
     lex = _load_lex()
     if w in lex:
         return list(lex[w])                       # bit-exact transcr4 output
+    word = _i_hiatus(word)                        # OOV word-initial i+vowel: ios -> ijos (see _i_hiatus)
+    w = word.lower()
+    if w in lex:
+        return list(lex[w])                       # the glided form may itself be a lexicon word
     try:
         from . import accent as lt_accent, render as lt_render
         toks = lt_render.render(word.upper(), lt_accent.accent(word))
@@ -192,11 +218,9 @@ def _shorten_o(w, toks):
     if _SHORT_O is None:
         try:
             from . import shorto_data
-            _SHORT_O = lt_shorto_data.SHORT_O
+            _SHORT_O = shorto_data.SHORT_O
         except Exception:
             _SHORT_O = set()
     if w in _SHORT_O:
         return ["o" if t == "oo" else t for t in toks]
     return toks
-
-# ---- validation against the real transcr4 (batch --tokens-file = reliable reference) ----

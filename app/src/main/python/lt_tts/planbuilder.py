@@ -9,15 +9,11 @@
 # resulting Plan equals build_plan_from_capture's and synthesizes 100% bit-exact. Mismatched selection shows
 # up directly as a frame-count / fid divergence (validate() reports it). PHASE 2 will replace the captured
 # prosody with lt_tonai/lt_ilgiai for a fully DLL-free text->wav path.
-import os, sys, struct, subprocess
 from . import selection as G
 from . import backend as GS
 from . import voice as W
 from . import transcribe as LT
 from . import duration as IL
-
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-G.FRONTEND = "free"                                  # pure-Python G2P/prosody (transcr_cli is flaky on words)
 
 _POOL = None
 _UNITS = None
@@ -294,13 +290,15 @@ _PHASE2_TAIL = [256, 256, 149]                       # the engine's trailing-sil
                                                      # all words; verified 22/22 in capture). Rate-independent.
 
 
-_Q_RISE_S90 = -46                                    # question-rise s90 target: drives the final period down to
-                                                     # ~258 => F0 ~85 Hz (the engine's measured question rise from
-                                                     # the 75 Hz statement floor); see build_plan_phase2(question=)
+_Q_RISE_S90 = -35                                    # question-rise s94/s90 target: final period 294-35=259 =>
+                                                     # F0 ~85 Hz == the engine's measured question-end (statement
+                                                     # ends flat 75 Hz). Reached EXACTLY via the per-frame reseed
+                                                     # ramp in build_plan_phase2(question=) (the old -46 was an
+                                                     # IIR-undershoot compensation that still stalled at ~80 Hz).
 _Q_RISE_FRAMES = 16                                  # # of trailing voiced frames the rise ramps over (~1 syllable)
 
 
-def build_plan_phase2(word, final=True, question=False):
+def build_plan_phase2(word, final=True, question=False, rate=None, pitch=None):
     """PHASE 2 Plan: FULLY GENERATIVE -- NO engine capture at all (cont.43). Native backbone + the WHOLE frame
     skeleton come from select_frames; prosody is generative:
       * structure: select_frames' ordered pool units (== the engine's frame stream; verified 955/955).
@@ -310,10 +308,14 @@ def build_plan_phase2(word, final=True, question=False):
         onset), RATE-INDEPENDENT (rate is the downstream THR gate).
       * s90 STEP: -20 on voiced frames (the stress hold); the phrase-final fall is the se8 ramp armed at the
         release node. pause/verbatim frames ignore s90/s94 (a6==0 => no pitch resample) -> set 0/68.
-      * s94: seed 68 at the very first frame, carry via gen_synth's epoch IIR.
+      * s94: utterance seed = GS.pitch_s94_seed(pdc) (fda0's reseed s94=P_DC-220 + its IIR step; = 68 at the
+        pitch=None sentinel P_DC=294), carry via gen_synth's epoch IIR.
       * tail: _PHASE2_TAIL (the constant engine trailing silence).
-    Byte-identical to the former captured-skeleton build on 37 words (probe _probe_nocap)."""
-    S94_INIT = 68
+    Byte-identical to the former captured-skeleton build on 37 words (probe _probe_nocap).
+    rate/pitch (NVDA sliders, None = bit-exact sentinels) shape the TIMING-dependent parts of the plan (the
+    s94 seed + the no-arm contour pass) and must match what synthesize() is called with."""
+    pdc = GS.pitch_pdc(pitch)
+    S94_INIT = GS.pitch_s94_seed(pdc)                # 68 at pitch=None (pdc=294) -> bit-exact path unchanged
     pool, units = _voice()
     poolset = set(tuple(int(x) for x in a) for a in pool.values())
     gen = [g for g in select_frames(word) if not g['sil']]
@@ -364,17 +366,24 @@ def build_plan_phase2(word, final=True, question=False):
     _thread_n2(frames, poolset)                      # generative E960 blend node (restores cross-frame blending)
     if question:
         # QUESTION RISE (phrase-final yes/no-question intonation, the engine's `?` contour): instead of the se8
-        # FALL (s90 -20->0 => 75 Hz), the pitch RISES at the end (engine measured 75->~85 Hz). Drop the release
-        # and ramp s90 on the last _Q_RISE_FRAMES VOICED frames from -20 down to _Q_RISE_S90 (lower s90 => lower
-        # period => higher F0). gen_synth's s94 IIR climbs toward it. (A simple phrase-type contour; the engine's
-        # full tonai question shape isn't ported -- this reproduces the audible terminal rise.)
+        # FALL (s90 -20->0 => 75 Hz), the pitch RISES at the end (engine measured: statement ends flat 75 Hz,
+        # question climbs gently to ~85 Hz over the final syllable). Drop the release and ramp the last
+        # _Q_RISE_FRAMES VOICED frames from -20 down to _Q_RISE_S90. The ramp RESEEDS s94 per frame (not just
+        # s90): the IIR alone moves ~2/epoch and the trailing frames carry only a few epochs -- at natural rate
+        # it stalled near -26 (~80 Hz, half the engine's rise) and at a fast THR (fewer epochs still) the rise
+        # vanished entirely, which is what made '?' inaudible. Reseed is rate-independent: each trailing frame's
+        # periods hit the ramp value exactly at ANY rate. (A phrase-type contour; the engine's full tonai
+        # question shape isn't ported -- this reproduces the measured terminal rise.)
         for fr in frames:
             fr.pop('release', None)
         vidx = [k for k, fr in enumerate(frames) if not fr['pause']]
         m = min(_Q_RISE_FRAMES, len(vidx))
         for r, k in enumerate(vidx[-m:]):
             frac = (r + 1) / float(m)                 # 0..1 across the trailing window
-            frames[k]['s90'] = int(round(-20 + (_Q_RISE_S90 - (-20)) * frac))
+            v = int(round(-20 + (_Q_RISE_S90 - (-20)) * frac))
+            frames[k]['s90'] = v
+            frames[k]['s94'] = v
+            frames[k]['reseed'] = True
         return GS.Plan(frames, tail)
     if not final:
         for fr in frames:
@@ -387,7 +396,11 @@ def build_plan_phase2(word, final=True, question=False):
     # burst-shape stays; the few-sample frame/grain boundary slack is absorbed by the +100 contour lag). No
     # _gchar.bin/_grains.bin/_arm.txt needed -- the arm is now pure front-end + back-end.
     fr_rpos = []
-    GS.synthesize(plan, _frame_rpos=fr_rpos)         # plan has no release_rpos yet => no-arm pass
+    # The no-arm pass MUST run at the TARGET rate: release_rpos is an absolute OUTPUT-sample position, and a
+    # fast THR compresses the output -- a natural-schedule arm lands past (or far off) the fast output, so the
+    # se8 fall misfired/never fired at fast rates (the engine recomputes its contour on the actual epoch
+    # schedule). rate=None keeps the natural pass = the bit-exact path, byte-identical.
+    GS.synthesize(plan, rate=rate, pitch=pitch, _frame_rpos=fr_rpos)   # no release_rpos yet => no-arm pass
     rr = _gen_arm_rpos(word, frames, fr_rpos)        # fully generative arm (no capture)
     if rr is not None:
         plan.release_rpos = rr
@@ -407,7 +420,7 @@ def _se8_word_base(wi):
     return 20 if wi == 0 else 10 - 4 * wi
 
 
-def build_plan_phrase(text, question=False):
+def build_plan_phrase(text, question=False, rate=None, pitch=None):
     """MULTI-WORD continuous prosody (cont.48-49), the engine's PER-WORD se8 contour + PHRASE DECLINATION: each
     word runs its OWN se8 fall (arm at floor(wordlen/2), se8 RESETS per word), and the s90 base declines by word
     position (_se8_word_base: 20,6,2,-2,...) so each successive word's accent peaks lower -- the engine's natural
@@ -416,12 +429,12 @@ def build_plan_phrase(text, question=False):
     raises the final word instead. Single word -> just build_plan_phase2."""
     words = [w for w in text.split() if w]
     if len(words) <= 1:
-        return build_plan_phase2(text, question=question)
+        return build_plan_phase2(text, question=question, rate=rate, pitch=pitch)
     allframes, alltail = [], list(_PHASE2_TAIL)
     word_spans = []                                   # (start_frame_index, end_frame_index, word) per word
     for wi, w in enumerate(words):
         last = (wi == len(words) - 1)
-        wp = build_plan_phase2(w, question=(question and last))
+        wp = build_plan_phase2(w, question=(question and last), rate=rate, pitch=pitch)
         start = len(allframes)
         for fi, fr in enumerate(wp.frames):
             fr = dict(fr)
@@ -439,7 +452,9 @@ def build_plan_phrase(text, question=False):
     # maps each word's armc -> its arm output sample. This is the sample-exact multi-arm (vs the coarse per-frame
     # 'release' flag), matching the single-word bit-exact path's release_rpos precision (cont.50).
     fr_rpos = []
-    GS.synthesize(plan, _frame_rpos=fr_rpos)          # in-phrase cumulative output per frame
+    GS.synthesize(plan, rate=rate, pitch=pitch, _frame_rpos=fr_rpos)   # in-phrase cumulative output per frame
+                                                          # AT THE TARGET RATE+PITCH (arm samples must live on
+                                                          # the actual epoch schedule)
     arm_list = []
     for (start, end, w, wp) in word_spans:
         if question and (end == len(allframes)):

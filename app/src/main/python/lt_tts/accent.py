@@ -25,12 +25,8 @@
 #   type 2 = acute      (tvirtapradė, rendered xX e.g. "aA")
 # The matcher's own result record stores pos as a 0-BASED char index at +8 and type at +0xc;
 # accent() returns pos as 1-based (= probe_pos + 1).
-import os, json, subprocess
+import json
 from . import paths
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-CLI  = os.path.join(ROOT, "transcr_cli.exe")
 
 def _load(name):
     return json.load(open(paths.data_path(name), encoding="utf-8"))
@@ -601,25 +597,9 @@ def _bisect_a9a(key):
     return lo, hi
 
 def _dllclasses():
-    """The two char-class groups (star_classes + noun_walk_cc) extracted from transcr4.dll's .data.
-    Prefer the offline JSON (accent_dllclasses.json) so the engine is fully DLL-free; fall back to a
-    live pefile read of transcr4.dll only if the JSON is absent (dev/extraction path)."""
-    p = paths.data_path("accent_dllclasses.json")
-    if os.path.exists(p):
-        return json.load(open(p, encoding="utf-8"))
-    import pefile                                       # fallback: extract straight from the binary
-    pe = pefile.PE(os.path.join(ROOT, "transcr4.dll")); base = pe.OPTIONAL_HEADER.ImageBase
-    d = pe.__data__
-    def bs(va):
-        off = va - base; o = []
-        while d[off] != 0:
-            o.append(d[off]); off += 1
-        return o
-    return dict(star_classes=dict(c9034=bs(0x101d9034), c903c=bs(0x101d903c),
-                                  c904c=bs(0x101d904c), c905c=bs(0x101d905c)),
-                noun_walk_cc=dict(V=bs(0x101d9248), VL=bs(0x101d9258), AEIUO=bs(0x101d926c),
-                                  LMNR=bs(0x101d9274), V1=bs(0x101d927c), UIO=bs(0x101d928c),
-                                  AEOU=bs(0x101d9290)))
+    """The two char-class groups (star_classes + noun_walk_cc), extracted offline from transcr4's
+    .data into accent_dllclasses.json — a shipped table, no binary needed at runtime."""
+    return json.load(open(paths.data_path("accent_dllclasses.json"), encoding="utf-8"))
 
 _V903 = None
 def _star_classes():
@@ -1107,29 +1087,3 @@ def _noun_results(word):
                 _noun_emit(out, ei, eflag, L, wb, cc,
                            [b90c] + _NOUN_EXPAND.get(b90c, []), b90d, nb90e, nb90f, cec, star_prio)
     return out
-
-
-# ---- transcr4 reference (reliable batch) --------------------------------------------------------
-def transcr4_stress(words):
-    fd = os.path.join(ROOT, "_acc.lst")
-    open(fd, "wb").write(("\n".join(words) + "\n").encode("cp1257", "replace"))
-    out = subprocess.run([CLI, "--tokens-file", fd], capture_output=True).stdout
-    os.remove(fd)
-    ref = {}
-    for line in out.decode("cp1257", "replace").splitlines():
-        if "\t" not in line:
-            continue
-        w, toks = line.split("\t", 1)
-        tl = toks.split()
-        si = sj = stype = None
-        for i, t in enumerate(tl):
-            base = t.replace("'", "")
-            if any(c in "AEIOU" for c in base) and any(c in "aeiou" for c in base.lower()):
-                if any(c.isupper() for c in base):
-                    si = i
-                    if len(base) == 2:
-                        stype = "acute(1)" if base[1].isupper() else "circumflex(2)"
-                    else:
-                        stype = "short"
-        ref[w] = (si, stype, toks)
-    return ref

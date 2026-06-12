@@ -180,8 +180,12 @@ internal object Render {
         }
         accodeTrans(accode, L)
         diphthongAttr(attr, L)
-        val B1 = buildB1(buf, L + 4)
-        val B2 = buildB2(buf, L + 4)
+        // PART1/PART2 walk EXACTLY the L-long core (python render.py: _build_B1(buf, L)); they peek
+        // buf[pos+1] one past the end, which is why buf carries the zero padding. Passing L+4 here
+        // walked into the pad and overran the buffer -- the bug that crashed render() for EVERY OOV
+        // word (the engine then silently fell back to the crude no-stress g2p).
+        val B1 = buildB1(buf, L)
+        val B2 = buildB2(buf, L)
         // PART3 pad: '_' at buf[0], '_' '_' '\0' at buf[L], buf[L+1], buf[L+2]
         buf[0] = 0x5f; buf[L] = 0x5f; buf[L + 1] = 0x5f; buf[L + 2] = 0
         val accbyte = IntArray(L + 4)

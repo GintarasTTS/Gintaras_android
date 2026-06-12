@@ -39,17 +39,21 @@ def _group_words(h, t, u, b):
 
 
 def to_words(n):
-    """Integer / digit string -> the engine's exact Lithuanian numeral word string (lowercase, space-joined)."""
+    """Integer / digit string -> the engine's exact Lithuanian numeral word string (lowercase, space-joined).
+    LEADING ZEROS are spoken, one 'nulis' each, exactly like PradApdZod (transcr_cli-verified:
+    '01'->nulis vienas, '007'->nulis nulis septyni, '0023'->nulis nulis dvidešimt trys, '00'->nulis nulis);
+    zeros INSIDE the number are positional as before ('100'->šimtas, '10'->dešimt)."""
     s = str(n).strip().lstrip("+")
     if not s.isdigit():
         return None
-    s = s.lstrip("0") or "0"
-    if s == "0":
-        return ONES[0]                                   # 'nulis'
-    digits = [int(c) for c in s]
+    nz = s.lstrip("0")
+    pre = [ONES[0]] * (len(s) - len(nz))                 # one 'nulis' per leading zero
+    if not nz:                                           # all zeros: '0'->nulis, '00'->nulis nulis, ...
+        return " ".join(pre)
+    digits = [int(c) for c in nz]
     ng = (len(digits) + 2) // 3
     digits = [0] * (ng * 3 - len(digits)) + digits       # left-pad to whole 3-digit groups
-    words = []
+    words = pre
     for gi in range(ng):
         h, t, u = digits[gi * 3:gi * 3 + 3]
         b = 3 * (ng - 1 - gi)

@@ -16,41 +16,40 @@ internal object Transcribe {
               'A','E','I','O','U','Y','Ą','Ę','Ė','Į','Ų','Ū')
     }
 
-    // Short-o loanwords (from shorto_data.py — unstressed 'oo' -> 'o')
+    // Short-o loanwords (shorto_data.py merged set, 202 words -- unstressed 'oo' -> 'o';
+    // each verified against the engine: oo->o reproduces its tokens exactly)
     private val SHORT_O = setOf(
-        "pozityvus","terminologija","kontaktas","kostiumas","prospektas","proletaras",
-        "politikas","fonetika","kompozicija","konstanta","postulatas","mikroskopas",
-        "kosmonautas","reformatorius","konsultacija","komunizmas","gubernatorius",
-        "eksponatas","inovacija","kontrastas","meteorologija","monotonija","problematika",
-        "koncentracija","rezoliucija","orkestras","konsolidacija","kooperacija",
-        "psichologas","protagonistas","metropolis","komisija","konstitucija","produktas",
-        "konstrukcija","senatorius","kompensacija","ideologija","propeleris","populiarus",
-        "profesija","komplikacija","romantika","televizorius","geometrija","zoologija",
-        "komitetas","prognozė","konkursas","etimologija","kontraktas","pomidoras",
-        "direktorius","pornografija","kompiuteris","organizatorius","procesas","dotacija",
-        "evoliucija","optimistas","prodiuseris","komunalinis","statorius","optimizmas",
-        "chromosoma","moneta","momentas","teologija","projektorius","konkretus",
-        "ekspozicija","rekomendacija","poliglotas","komandiruotė","provokacija",
-        "monitorius","moderatorius","fotografija","poetas","terorizmas","monologas",
-        "poligonas","hormonas","ikona","fotonas","oratorija","poezija","revoliucija",
-        "donoras","ekologija","fotosintezė","poliklinika","komercija","demonstracija",
-        "komentaras","holograma","konvencija","nostalgija","kotletas","vokalas",
-        "simbolis","proporcija","navigatorius","astrologija","globalus","mozaika",
-        "konfliktas","inspektorius","propozicija","prozodija","konkurencija",
-        "formuluotė","procedūra","korektorius","fonoteka","transformacija",
-        "psichologija","kontekstas","konsekvencija","notaras","strofa","progresas",
-        "filologija","provizorius","dekompozicija","kompanija","operatorius",
-        "demografija","kontrabanda","monarchija","lokomotyvas","detonacija",
-        "monografija","intonacija","reorganizacija","improvizacija","memorandumas",
-        "protokolas","projektas","diplomatas","modifikacija","mitologija",
-        "impozantiškas","konservatorius","orbita","kompetencija","ekonomija",
-        "kompleksas","komunikacija","konditeris","geologija","kontinentas","kongresas",
-        "dekoracija","provincija","molekulė","dispozicija","monopolija","formatas",
-        "politechnika","romanas","topografija","traktorius","proporcingas","prokuroras",
-        "odisėja","obligacija","renovacija","ekonomistas","koncepcija","humoras",
-        "morfologija","supozicija","mobilus","ortodoksas","diskoteka","honoraras",
-        "laboratorija","ilona","kompromisas","korupcija","porcelianas","technologija",
-        "koordinacija"
+        "astrologija","chromosoma","dekompozicija","dekoracija","demografija","demonstracija",
+        "detonacija","diplomatas","direktorius","diskoteka","dispozicija","donoras","dotacija",
+        "ekologija","ekonomija","ekonomistas","eksponatas","ekspozicija","etimologija","evoliucija",
+        "filologija","fonetika","fonoteka","formatas","formuluotė","fotografija","fotonas",
+        "fotosintezė","geologija","geometrija","globalus","gubernatorius","holograma","honoraras",
+        "hormonas","horoskopas","humoras","ideologija","ikona","ilona","impozantiškas",
+        "improvizacija","inovacija","inspektorius","intonacija","izoliacija","izoliacijai",
+        "izoliaciją","izoliacijų","izoliatorius","izoliuota","izoliuotas","kolekcija","kolonija",
+        "komandiruotė","kombinacija","komentaras","komercija","komisija","komitetas","kompanija",
+        "kompensacija","kompetencija","kompiuteris","kompleksas","komplikacija","kompozicija",
+        "kompromisas","komunalinis","komunikacija","komunizmas","koncentracija","koncepcija",
+        "koncernas","konditeris","konfliktas","kongresas","konkretus","konkurencija","konkursas",
+        "konsekvencija","konservatorius","konsolidacija","konspektas","konstanta","konstitucija",
+        "konstrukcija","konsultacija","kontaktas","konteineris","kontekstas","kontinentas",
+        "kontrabanda","kontraktas","kontrastas","konvencija","kooperacija","koordinacija",
+        "korektorius","korupcija","kosmonautas","kostiumas","kotletas","laboratorija",
+        "lokalizacija","lokomotyvas","memorandumas","meteorologija","metropolis","mikroskopas",
+        "mitologija","mobilizacija","mobilus","moderatorius","modernizacija","modifikacija",
+        "molekulė","momentas","monarchija","moneta","monitorius","monografija","monologas",
+        "monopolija","monotonija","morfologija","motociklas","mozaika","navigatorius","nostalgija",
+        "notaras","obligacija","odisėja","operatorius","optimistas","optimizmas","oratorija",
+        "orbita","organizatorius","orkestras","ortodoksas","poetas","poezija","poliglotas",
+        "poligonas","poliklinika","politechnika","politikas","pomidoras","populiarus","porcelianas",
+        "pornografija","postulatas","pozityvus","problematika","procedūra","procesas","prodiuseris",
+        "produktas","profesija","prognozė","progresas","projektas","projektorius","prokuroras",
+        "proletaras","propeleris","proporcija","proporcingas","propozicija","prospektas",
+        "protagonistas","protokolas","provincija","provizorius","provokacija","prozodija",
+        "psichologas","psichologija","reformatorius","rekomendacija","renovacija","reorganizacija",
+        "revoliucija","rezoliucija","romanas","romantika","senatorius","simbolis","statorius",
+        "strofa","supozicija","technologija","televizorius","teologija","terminologija",
+        "terorizmas","topografija","traktorius","transformacija","vokalas","zoologija"
     )
 
     // Lexicon: lowercase word -> token list (loaded from lt_lex.tsv)
@@ -76,13 +75,29 @@ internal object Transcribe {
         }
     }
 
-    /** x->ks, q->k (the engine's phonetic value for these non-LT letters) */
+    /** x->ks, q->k, w->v (the engine's phonetic value for these non-LT letters; w per the
+     *  ruleslt.rul `Dw v` digraph rule: windows -> vindovs). A STANDALONE letter is spelled by
+     *  NAME (x='iks', q='kū', w='dviguba vė') -- the spell-mode path runs first. */
     private fun xqNormalize(word: String): String {
-        if ('x' !in word && 'X' !in word && 'q' !in word && 'Q' !in word) return word
+        if (word.none { it in "xXqQwW" }) return word
         return word.map { c -> when (c) {
-            'x' -> "ks"; 'X' -> "Ks"; 'q' -> "k"; 'Q' -> "K"; else -> c.toString()
+            'x' -> "ks"; 'X' -> "Ks"; 'q' -> "k"; 'Q' -> "K"
+            'w' -> "v"; 'W' -> "V"; else -> c.toString()
         }}.joinToString("")
     }
+
+    // o/u-family vowels after word-initial i- (user-scoped: only io-/iu- starts; ie- stays native)
+    private val I_HIATUS = setOf('o', 'ō', 'u', 'ū', 'ų')
+
+    /** Word-INITIAL io/iu ("ios", "iOS", "Iowa"): transcr4 treats the i as a bare palatalization mark
+     *  and DELETES it (ios -> 'oo s'). Fix (user-tuned): read the i as a FULL SEPARATE vowel, "i os" --
+     *  NOT a j glide and NOT palatalized -- by DOUBLING the i ("ios" -> "iios"): the first i survives
+     *  as the vowel, the second is consumed by the engine's own palatalization rule -> 'i oo s'.
+     *  Applied ONLY on the OOV path (after the lexicon misses) so no lexicon word can change. */
+    private fun iHiatus(word: String): String =
+        if (word.length >= 2 && word[0] in "iI" && word[1].lowercaseChar() in I_HIATUS)
+            word[0] + "i" + word.substring(1)
+        else word
 
     /** Replace unstressed 'oo' with 'o' for known loanwords. */
     private fun shortenO(w: String, toks: List<String>): List<String> =
@@ -95,20 +110,24 @@ internal object Transcribe {
      * Falls back to a rule-based g2p only if the renderer errors.
      */
     fun transcribe(word: String): List<String> {
-        // VOWELLESS word -> spell letter names as phonemes
-        val sp = Spell.spellOut(word)
+        // VOWELLESS word -> spell letter names as phonemes (engine lexicon hit preferred)
+        val sp = Spell.spellOut(word) { loadLex()[it] }
         if (sp != null) return sp
-        val w2 = xqNormalize(word)
-        val wl = w2.lowercase()
+        var w2 = xqNormalize(word)
+        var wl = w2.lowercase()
         // exact lexicon hit
         loadLex()[wl]?.let { return it }
+        w2 = iHiatus(w2)                       // OOV word-initial i+vowel: ios -> iios (see iHiatus)
+        wl = w2.lowercase()
+        loadLex()[wl]?.let { return it }       // the doubled form may itself be a lexicon word
         // accent + render (the ported DLL pipeline)
         return try {
             val stress = Accent.accent(w2)
             val toks = Render.render(w2.uppercase(), stress)
-            if (toks != null && toks.isNotEmpty()) shortenO(wl, toks) else fallbackG2P(wl)
+            if (toks != null && toks.isNotEmpty()) shortenO(wl, toks)
+            else shortenO(wl, fallbackG2P(wl))
         } catch (_: Exception) {
-            fallbackG2P(wl)
+            shortenO(wl, fallbackG2P(wl))
         }
     }
 

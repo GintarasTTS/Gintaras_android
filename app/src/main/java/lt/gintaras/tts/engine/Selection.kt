@@ -274,7 +274,16 @@ internal object Selection {
 
     private fun standaloneUnit(c: String, units: Map<String, List<Int>>): String? {
         val cc = cs(c)
-        return first(listOf(cc,"$cc-","-$cc"), units)
+        var u = first(listOf(cc,"$cc-","-$cc"), units)
+        if (u == null && cc == "j") {
+            // The voice has NO standalone-j recording (j exists only inside diphthong offglides and Cv
+            // onsets), and the ENGINE simply SKIPS a cluster/word-final bare j ("asj"/"jtas": bit-exact
+            // with NOTHING rendered for the j). For unknown letter-strings every letter must stay audible
+            // (a screen-reader user must hear ALL of a nonsense token), so render the bare j as its
+            // vocalic value: a short i-glide. Real words never hit this (j is always next to a vowel).
+            u = first(listOf("i", "i|"), units)
+        }
+        return u
     }
 
     private fun isLongV(v: String, key: String? = null): Boolean {
@@ -317,6 +326,7 @@ internal object Selection {
 
         var i = 0
         var prevPipe = false
+        var prevBare = false   // was the previous vowel a BARE body (no consonant onset)?
 
         while (i < n) {
             val p = phones[i]; val dur = durs[i]; val f0 = f0s[i]
@@ -325,6 +335,7 @@ internal object Selection {
 
             if (isVowel(p)) {
                 prevPipe = false
+                prevBare = true   // bare vowel body -> a following obstruent coda backs off
                 val wiFalling = p.length == 2 && p[1] in FALLING_GLIDE &&
                         !(p[1] in listOf('u','w',U_OG[0]) && p[0] in LONGV)
                 when {
@@ -358,8 +369,12 @@ internal object Selection {
                     // ONSET consonant + vowel pair
                     val v = nxt; val vst = stresses[i + 1]; val vdur = durs[i + 1]; val vf0 = f0s[i + 1]
                     val v1 = if (v.length == 2) v[0] else v[0]
-                    val lastVowel = (i + 2 until n).none { isVowel(phones[it]) }
-                    val combo = if (v.length == 1 && v[0] in "iu" && lastVowel) "${c}${v}|--" else null
+                    // SHORT-i combined onset `Ci|--` (ti|--): engine-verified 2026-06-12 -- the engine uses
+                    // ti|-- for EVERY t+i syllable regardless of position (tikras/tinas/tilo/optika non-final
+                    // AND eiti/naktis/dantis final), so there is NO last-vowel gate; lo|--/lu|-- are NEVER
+                    // used (stalu/galu/metalo/salos play the plain onset+body pair). Still gated on the unit
+                    // existing (only ti|-- recorded for i), so brolis li|-- absent -> li- backs off as before.
+                    val combo = if (v.length == 1 && v[0] == 'i') "${c}${v}|--" else null
                     val diphCombo = if (v.length == 2 && "${c}${v}|" in units) "${c}${v}|" else null
                     val on = when {
                         diphCombo != null -> null
@@ -404,6 +419,7 @@ internal object Selection {
                         }
                     }
                     prevPipe = pbod != null && pbod.endsWith("|")
+                    prevBare = false   // dashed/pipe body -> following coda stays standalone
                     val ic = dur; val iv = vdur
                     val natDips = chain.sumOf { k ->
                         if (k in dipkeys || k != pbod) onsetLen(k, vf0, units) else 0.0
@@ -445,6 +461,12 @@ internal object Selection {
                         val cl = mutableListOf("-$pv$c")
                         if (pv.isNotEmpty() && pv[0] in LONG2SHORT) cl.add("-${LONG2SHORT[pv[0]]}$c")
                         if (pv == "u") cl.add("-o$c")
+                        // GENERIC `-aC` for an OBSTRUENT coda after a BARE vowel body (engine-verified grid
+                        // 2026-06-12: word-initial i/e/y + k/p/t/f/z all back off to the a-coda; xkcd's
+                        // i-k = '-ak'). THREE gates, each engine-confirmed: SONORANT codas never back off
+                        // (imta/ilka/irgi = bare m/l/r); after a DASHED `-Cv` body the consonant stays
+                        // standalone (wjak '-je'+k, mxyzptlk '-sy'+s); after a pipe body likewise.
+                        if (c.isNotEmpty() && c[0] !in SONOR && prevBare) cl.add("-a$c")
                         cl
                     } else emptyList()
                     val fullCoda = first(codaCands, units)

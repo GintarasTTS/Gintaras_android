@@ -70,14 +70,18 @@ internal object Numerals {
     }
 
     fun toWords(n: String): String? {
-        val s0 = n.trim().trimStart('+')
-        if (!s0.all { it.isDigit() }) return null
-        val s = s0.trimStart('0').ifEmpty { "0" }
-        if (s == "0") return ONES[0]!!
-        val digits = s.map { it - '0' }
+        val s = n.trim().trimStart('+')
+        if (s.isEmpty() || !s.all { it.isDigit() }) return null
+        // LEADING ZEROS are spoken, one 'nulis' each, exactly like PradApdZod ('01' -> nulis vienas,
+        // '0023' -> nulis nulis dvidešimt trys, '00' -> nulis nulis); zeros INSIDE the number stay
+        // positional as before ('100' -> šimtas, '10' -> dešimt).
+        val nz = s.trimStart('0')
+        val pre = List(s.length - nz.length) { ONES[0]!! }
+        if (nz.isEmpty()) return pre.joinToString(" ")
+        val digits = nz.map { it - '0' }
         val ng = (digits.size + 2) / 3
         val padded = IntArray(ng * 3 - digits.size) { 0 }.toMutableList() + digits
-        val words = mutableListOf<String>()
+        val words = pre.toMutableList()
         for (gi in 0 until ng) {
             val h = padded[gi * 3]; val t = padded[gi * 3 + 1]; val u = padded[gi * 3 + 2]
             val b = 3 * (ng - 1 - gi)

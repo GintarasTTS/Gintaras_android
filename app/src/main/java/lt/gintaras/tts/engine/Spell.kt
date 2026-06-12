@@ -55,8 +55,11 @@ internal object Spell {
         return word.any { it.isLetter() }
     }
 
-    /** Returns phoneme token list (with "_" boundaries) for a spelletable word, or null. */
-    fun spellOut(word: String): List<String>? {
+    /** Returns phoneme token list (with "_" boundaries) for a spelletable word, or null.
+     *  lexLookup: optional lexicon probe -- a VOWELLESS word with an engine lexicon entry uses the
+     *  engine's own spelled output (bit-exact, incl. the cross-letter assimilation the letter-phoneme
+     *  concat can't model). */
+    fun spellOut(word: String, lexLookup: ((String) -> List<String>?)? = null): List<String>? {
         if (word.isEmpty() || !word.any { it.isLetter() }) return null
         // single isolated y/ą/ę/ų/ū -> spell by name
         if (word.length == 1) {
@@ -66,6 +69,7 @@ internal object Spell {
         }
         // word with a vowel -> normal transcription
         if (word.any { it in VOWELS_SP }) return null
+        lexLookup?.invoke(word.lowercase())?.let { return it.toList() }
         // vowelless -> concatenate each consonant's phoneme tokens
         val out = mutableListOf("_")
         for (c in word.lowercase()) {

@@ -5,9 +5,11 @@ package lt.gintaras.tts.engine
 
 internal object PlanBuilder {
 
-    private const val S94_INIT = 68
     private val PHASE2_TAIL = listOf(256, 256, 149)
-    private const val Q_RISE_S90 = -46
+    // question-rise s94/s90 target: final period 294-35=259 => F0 ~85 Hz == the engine's measured
+    // question-end (statement ends flat 75 Hz). Reached EXACTLY via the per-frame reseed ramp below
+    // (the old -46 was an IIR-undershoot compensation that still stalled at ~80 Hz).
+    private const val Q_RISE_S90 = -35
     private const val Q_RISE_FRAMES = 16
     private const val A5_DMIN = 108
     private const val A5_LONGV_EXTRA = 10
@@ -146,25 +148,28 @@ internal object PlanBuilder {
                 val newFrames = mutableListOf<SFrame>()
                 for (fid in listOfNotNull(clos, burstFid)) {
                     val pcm = pool[fid] ?: continue
-                    val k = if (fid == clos) closKey else "_stop"
-                    newFrames.add(SFrame(pcm = pcm, pi = ii, key = k, inStress = ii <= syllEnd))
+                    // python labels BOTH inserted frames '_stop' (one (key,pi) unit -> one pause group)
+                    newFrames.add(SFrame(pcm = pcm, pi = ii, key = "_stop", inStress = ii <= syllEnd))
                 }
                 frames.addAll(ins, newFrames)
                 break
             }
         }
 
-        // mark the release frame (voiced = pcm.size <= 350)
-        val voiced = frames.indices.filter { frames[it].pcm.size <= 350 }
+        // mark the release frame. python's candidate list is ALL non-sil frames (closures included --
+        // zcgagtp arms ON its 'ga-' closure); our frames list already dropped the sil elems, so every
+        // index is a candidate. (The old `pcm.size <= 350` filter wrongly excluded closures.)
+        val voiced = frames.indices.toList()
         val phFrames = voiced.filter { frames[it].pi == armPhone }
         val tgt: Int? = when {
             phFrames.isEmpty() ->
                 voiced.firstOrNull { frames[it].pi != null && frames[it].pi!! >= armPhone }
+                    ?: voiced.firstOrNull()
             armOff >= 1 -> {
                 val keys = phFrames.map { frames[it].key }
                 val split = (1 until keys.size).firstOrNull { keys[it] != keys[it - 1] }
                 if (split != null) phFrames[split]
-                else phFrames[minOf(phFrames.size - 1, kotlin.math.round(armFrac * phFrames.size).toInt())]
+                else phFrames[minOf(phFrames.size - 1, Math.rint(armFrac * phFrames.size).toInt())]
             }
             armPhone > 0 && Selection.isVowel(phones.getOrElse(armPhone) { "" })
                 && !Selection.isVowel(phones.getOrElse(armPhone - 1) { "_" })
@@ -316,18 +321,39 @@ internal object PlanBuilder {
 
     // ---- threadN2 --------------------------------------------------------------------
 
+    // set of all pool frame contents (the python poolset): n2 is threaded only toward an IN-POOL voiced unit
+    @Volatile private var cachedPoolSet: Set<List<Int>>? = null
+
+    private fun poolSet(): Set<List<Int>> {
+        cachedPoolSet?.let { return it }
+        synchronized(this) {
+            cachedPoolSet?.let { return it }
+            return Voice.load().pool.values.map { it.toList() }.toHashSet().also { cachedPoolSet = it }
+        }
+    }
+
     private fun threadN2(frames: MutableList<Backend.Frame>) {
         val n = frames.size
+        val ps = poolSet()
         for (i in 0 until n) {
             val nb = if (i + 1 < n) frames[i + 1] else null
-            val n2 = if (nb != null && !nb.pause) nb.pcm else null
+            val n2 = if (nb != null && !nb.pause && nb.pcm.toList() in ps) nb.pcm else null
             frames[i] = frames[i].copy(n2 = n2)
         }
     }
 
+    // diagnostic trace for the jvmtest parity harness: one "key pi pcmlen release" line per frame
+    fun debugFrames(word: String): List<String> =
+        selectFrames(word).map { "${it.key} ${it.pi} ${it.pcm.size}${if (it.releasePoint) " REL" else ""}" }
+
     // ---- buildPlanPhase2 -------------------------------------------------------------
 
-    fun buildPlanPhase2(word: String, final: Boolean = true, question: Boolean = false): Backend.Plan {
+    fun buildPlanPhase2(word: String, final: Boolean = true, question: Boolean = false,
+                        rate: Int? = null, pitch: Int? = null): Backend.Plan {
+        // rate/pitch (NVDA sliders, null = bit-exact sentinels) shape the TIMING-dependent parts of the
+        // plan (the s94 seed + the no-arm contour pass) and must match what synthesize() is called with.
+        val pdc = Backend.pitchPdc(pitch)
+        val s94Init = Backend.pitchS94Seed(pdc)   // 68 at pitch=null (pdc=294) -> bit-exact path unchanged
         val gen = selectFrames(word)
         val a5gen = genA5List(word, gen)
 
@@ -348,13 +374,13 @@ internal object PlanBuilder {
             val a5v = a5gen.getOrElse(gi) { 0 }
             val s90 = if (pause[gi]) 0 else -20
             mframes.add(Backend.Frame(
-                pcm = g.pcm, s90 = s90, s94 = S94_INIT,
+                pcm = g.pcm, s90 = s90, s94 = s94Init,
                 pause = pause[gi], reseed = false,
                 a5 = a5v, release = g.releasePoint,
                 pi = g.pi, key = g.key
             ))
         }
-        if (mframes.isNotEmpty()) mframes[0] = mframes[0].copy(s94 = S94_INIT)
+        if (mframes.isNotEmpty()) mframes[0] = mframes[0].copy(s94 = s94Init)
         threadN2(mframes)
 
         val tail = PHASE2_TAIL
@@ -363,10 +389,13 @@ internal object PlanBuilder {
             for (i in mframes.indices) mframes[i] = mframes[i].copy(release = false)
             val vidx = mframes.indices.filter { !mframes[it].pause }
             val m = minOf(Q_RISE_FRAMES, vidx.size)
+            // The ramp RESEEDS s94 per frame (not just s90): the IIR alone moves ~2/epoch and the trailing
+            // frames carry only a few epochs -- without the reseed the rise stalled near ~80 Hz at natural
+            // rate and vanished at fast rates. Reseed is rate-independent.
             for ((r, k) in vidx.takeLast(m).withIndex()) {
                 val frac = (r + 1).toDouble() / m
-                val s90q = (-20 + (Q_RISE_S90 - (-20)) * frac).toInt()
-                mframes[k] = mframes[k].copy(s90 = s90q)
+                val v = Math.rint(-20 + (Q_RISE_S90 - (-20)) * frac).toInt()
+                mframes[k] = mframes[k].copy(s90 = v, s94 = v, reseed = true)
             }
             return Backend.Plan(mframes.toList(), tail)
         }
@@ -376,11 +405,13 @@ internal object PlanBuilder {
             return Backend.Plan(mframes.toList(), tail)
         }
 
-        // no-arm pass to collect per-frame cumulative output positions
+        // no-arm pass to collect per-frame cumulative output positions. It MUST run at the TARGET
+        // rate/pitch: releaseRpos is an absolute OUTPUT-sample position and a fast THR compresses the
+        // output (a natural-schedule arm misfires at fast rates). rate=null keeps the bit-exact path.
         val framesList = mframes.toList()
         val plan0 = Backend.Plan(framesList, tail)
         val frRpos = mutableListOf<Int>()
-        Backend.synthesize(plan0, frameRpos = frRpos)
+        Backend.synthesize(plan0, rate = rate, pitch = pitch, frameRpos = frRpos)
         val rr = genArmRpos(word, framesList, frRpos)
         if (rr != null) {
             val stripped = framesList.map { it.copy(release = false) }
@@ -396,9 +427,10 @@ internal object PlanBuilder {
 
     private fun se8WordBase(wi: Int): Int = if (wi == 0) 20 else 10 - 4 * wi
 
-    fun buildPlanPhrase(text: String, question: Boolean = false): Backend.Plan {
+    fun buildPlanPhrase(text: String, question: Boolean = false,
+                        rate: Int? = null, pitch: Int? = null): Backend.Plan {
         val words = text.split(Regex("\\s+")).filter { it.isNotEmpty() }
-        if (words.size <= 1) return buildPlanPhase2(text, question = question)
+        if (words.size <= 1) return buildPlanPhase2(text, question = question, rate = rate, pitch = pitch)
 
         data class WordSpan(val start: Int, val end: Int, val word: String, val wp: Backend.Plan)
         val allFrames = mutableListOf<Backend.Frame>()
@@ -406,7 +438,7 @@ internal object PlanBuilder {
 
         for ((wi, w) in words.withIndex()) {
             val last = wi == words.size - 1
-            val wp = buildPlanPhase2(w, question = question && last)
+            val wp = buildPlanPhase2(w, question = question && last, rate = rate, pitch = pitch)
             val start = allFrames.size
             for ((fi, fr) in wp.frames.withIndex()) {
                 var f = fr.copy(release = false)
@@ -420,9 +452,10 @@ internal object PlanBuilder {
         val plan = Backend.Plan(allFrames.toList(), PHASE2_TAIL)
         plan.se8Ramp = true
 
-        // in-phrase no-arm pass to get absolute per-frame cumulative output positions
+        // in-phrase no-arm pass to get absolute per-frame cumulative output positions AT THE TARGET
+        // RATE+PITCH (arm samples must live on the actual epoch schedule)
         val frRpos = mutableListOf<Int>()
-        Backend.synthesize(plan, frameRpos = frRpos)
+        Backend.synthesize(plan, rate = rate, pitch = pitch, frameRpos = frRpos)
 
         val armList = mutableListOf<Int?>()
         for ((start, end, w, wp) in wordSpans) {
