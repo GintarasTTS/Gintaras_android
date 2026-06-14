@@ -1,13 +1,11 @@
 package lt.gintaras.tts;
 
 import android.os.Bundle;
-import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
 
-/** Engine settings: voice selection, number processing, and update check. */
+/** Engine settings: voice selection, number processing, and about info. */
 public class SettingsActivity extends AppCompatActivity {
 
     @Override
@@ -27,16 +25,6 @@ public class SettingsActivity extends AppCompatActivity {
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             setPreferencesFromResource(R.xml.root_preferences, rootKey);
-
-            // Update check — stub: always reports no updates available.
-            Preference upd = findPreference("check_updates");
-            if (upd != null) {
-                upd.setOnPreferenceClickListener(p -> {
-                    Toast.makeText(requireContext(),
-                            R.string.updates_none, Toast.LENGTH_SHORT).show();
-                    return true;
-                });
-            }
         }
     }
 }

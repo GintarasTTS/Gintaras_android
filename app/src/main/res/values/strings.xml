@@ -17,10 +17,15 @@
     <!-- Categories -->
     <string name="cat_voice">Balsas</string>
     <string name="cat_speech">Kalbėjimas</string>
-    <string name="cat_updates">Atnaujinimai</string>
 
-    <!-- Update check -->
-    <string name="check_updates">Tikrinti atnaujinimus</string>
-    <string name="check_updates_summary">Patikrinti, ar yra naujesnė versija</string>
-    <string name="updates_none">Atnaujinimų nėra</string>
+    <!-- About -->
+    <string name="cat_about">Apie</string>
+    <string name="about_title">Gintaras TTS</string>
+    <string name="about_body">Originalus sintezatoriaus kūrėjas ir visos autorinės teisės priklauso: Rosasoft\n\nTai savarankiškai sukurta implementacija android platformai ir nėra oficialiai susijusi su Rosasoft.</string>
+    <string name="about_website">Atidaryti internetinį puslapį</string>
+
+    <!-- Contact -->
+    <string name="cat_telegram">Susisiekti su kūrėjais per Telegram</string>
+    <string name="telegram_vytska">Vytska</string>
+    <string name="telegram_hermis">hermis501</string>
 </resources>

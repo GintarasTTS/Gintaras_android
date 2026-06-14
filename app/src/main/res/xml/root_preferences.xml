@@ -4,13 +4,42 @@
 
     <PreferenceCategory
         app:iconSpaceReserved="false"
-        app:title="@string/cat_updates">
+        app:title="@string/cat_about">
         <Preference
-            android:key="check_updates"
-            android:title="@string/check_updates"
-            android:summary="@string/check_updates_summary"
+            android:title="@string/about_title"
+            android:summary="@string/about_body"
             app:iconSpaceReserved="false"
+            app:selectable="false"
             app:singleLineTitle="false" />
+        <Preference
+            android:title="@string/about_website"
+            app:iconSpaceReserved="false"
+            app:singleLineTitle="false">
+            <intent
+                android:action="android.intent.action.VIEW"
+                android:data="http://hermisk.lt/gintaras" />
+        </Preference>
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/cat_telegram">
+        <Preference
+            android:title="@string/telegram_vytska"
+            app:iconSpaceReserved="false"
+            app:singleLineTitle="false">
+            <intent
+                android:action="android.intent.action.VIEW"
+                android:data="https://t.me/Vytska69" />
+        </Preference>
+        <Preference
+            android:title="@string/telegram_hermis"
+            app:iconSpaceReserved="false"
+            app:singleLineTitle="false">
+            <intent
+                android:action="android.intent.action.VIEW"
+                android:data="https://t.me/hermis501" />
+        </Preference>
     </PreferenceCategory>
 
 </PreferenceScreen>
