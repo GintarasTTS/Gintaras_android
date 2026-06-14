@@ -115,11 +115,31 @@ class GintarasTtsService : TextToSpeechService() {
     private data class ClauseToken(val text: String, val delimiter: String)
 
     private fun splitClauses(text: String): List<ClauseToken> {
-        val delimRegex = Regex("[.,;:!?—]")
-        val parts = delimRegex.split(text)
-        val delims = delimRegex.findAll(text).map { it.value }.toList()
-        return parts.indices.map { i ->
-            ClauseToken(parts[i].trim(), if (i < delims.size) delims[i] else "")
-        }.filter { it.text.isNotEmpty() || it.delimiter.isNotEmpty() }
+        // Split on punctuation into clause + delimiter, EXCEPT a delimiter sitting between two
+        // digits (e.g. the colon in a time "21:20", or "8,5"). The engine's Symbols.expand turns
+        // such an inter-digit delimiter into a plain word gap (short pause) when punctuation reading
+        // is off -- so we must keep it inside the clause and let the engine handle it, instead of
+        // splitting here and inserting our own long clause pause. This matches the NVDA/Python path,
+        // which feeds the whole string straight to the engine.
+        val result = mutableListOf<ClauseToken>()
+        val sb = StringBuilder()
+        val n = text.length
+        for (i in text.indices) {
+            val c = text[i]
+            if (c in ".,;:!?—") {
+                val betweenDigits = i > 0 && text[i - 1].isDigit() &&
+                                    i + 1 < n && text[i + 1].isDigit()
+                if (betweenDigits) {
+                    sb.append(c)            // keep in clause -> engine renders a word gap
+                    continue
+                }
+                result.add(ClauseToken(sb.toString().trim(), c.toString()))
+                sb.setLength(0)
+                continue
+            }
+            sb.append(c)
+        }
+        if (sb.isNotEmpty()) result.add(ClauseToken(sb.toString().trim(), ""))
+        return result.filter { it.text.isNotEmpty() || it.delimiter.isNotEmpty() }
     }
 }
