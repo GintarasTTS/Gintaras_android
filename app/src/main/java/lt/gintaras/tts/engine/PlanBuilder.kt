@@ -214,6 +214,18 @@ internal object PlanBuilder {
             }
             return if (D == null || D >= A5_DMIN) "o" else null
         }
+        if (isCoda && body == "ou" && (pl == "ou" || pl == "o")) {
+            // the `ou` u-diphthong (sound/out/loud/foulas/router...): its head IS the long /o:/, so the
+            // engine doubles it +10 epochs exactly like a plain long-o coda -- route-2 capture_prosody:
+            // ALL `ou` loanwords give a5 sum=10, the lone exception being the kloun* family (a SHORT-o stem,
+            // handled in Transcribe.SHORT_OU). The plain-o test above misses these because the unit body
+            // ends in the u-offglide ('ou'), not 'o'. Gate on the HEAD vowel's length via `raw` (the
+            // original nucleus-head token, length preserved through the merge): a LONG head 'oo'/'oO'/'Oo'
+            // doubles; a SHORT klounas head 'o'/'O' does not. Works whether the nucleus is MERGED
+            // (phone 'ou') or SPLIT (phone 'o' + a sibling -un offglide). No D-floor: the engine doubles
+            // even the shortest loanword o (=103).
+            if (raw != null && raw.replace("'", "").lowercase() == "oo") return "o"
+        }
         if (isOnset && pl in A5_AU_ONSET) return "au"
         return null
     }

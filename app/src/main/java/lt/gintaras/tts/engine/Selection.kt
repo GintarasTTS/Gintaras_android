@@ -95,11 +95,18 @@ internal object Selection {
 
     // ---- diphthong merging -------------------------------------------------------
 
+    // merged record: (tok, dur, bps, head). `head` = the ORIGINAL nucleus-HEAD transcr token -- for a
+    // merged pair the vowel token (the length-bearing 'oo' vs 'o' that the merged 'ou' spelling collapses);
+    // for an unmerged token, the token itself. recsToFull uses `head` as the raw (6th) field.
+    private data class MergedRec(
+        val tok: String, val dur: Int, val bps: List<Pair<Int, Int>>, val head: String
+    )
+
     private fun mergeDiphthongs(
         recs: List<Triple<String, Int, List<Pair<Int, Int>>>>,
         unitSet: Set<String>
-    ): List<Triple<String, Int, List<Pair<Int, Int>>>> {
-        val out = mutableListOf<Triple<String, Int, List<Pair<Int,Int>>>>()
+    ): List<MergedRec> {
+        val out = mutableListOf<MergedRec>()
         var i = 0
         while (i < recs.size) {
             val (tok, dur, bps) = recs[i]
@@ -127,11 +134,11 @@ internal object Selection {
                 if (score > 0) {
                     val bs = best!!
                     val finalKey = if (tok.any { it.isUpperCase() }) bs[0].uppercaseChar() + bs.substring(1) else bs
-                    out.add(Triple(finalKey, dur + recs[i + 1].second, bps))
+                    out.add(MergedRec(finalKey, dur + recs[i + 1].second, bps, tok))   // head = vowel tok
                     i += 2; continue
                 }
             }
-            out.add(recs[i]); i++
+            out.add(MergedRec(tok, dur, bps, tok)); i++
         }
         return out
     }
@@ -140,14 +147,16 @@ internal object Selection {
         recs: List<Triple<String, Int, List<Pair<Int, Int>>>>,
         unitSet: Set<String>
     ): List<PhoneEntry> {
-        return mergeDiphthongs(recs, unitSet).map { (tok, dur, bps) ->
+        return mergeDiphthongs(recs, unitSet).map { (tok, dur, bps, head) ->
             val stressed = tok != "_" && tok.replace("'","").any { it.isUpperCase() }
             val palatal = "'" in tok
             val low = tok.replace("'","").lowercase()
             val isdiph = low.length == 2 && low[0] != low[1] &&
                     low[0] in "aeiou" && low[1] in "iju"
             val phone = if (tok == "_") "_" else (if (isdiph) low else norm(tok))
-            PhoneEntry(phone, dur, bps, stressed, palatal, tok)
+            // raw (6th field) = `head`, the original nucleus-head token, so an `ou` diphthong's long 'oo'
+            // vs short klounas 'o' survives the merge for the a5 doubling gate (see PlanBuilder.a5Eligible).
+            PhoneEntry(phone, dur, bps, stressed, palatal, head)
         }
     }
 

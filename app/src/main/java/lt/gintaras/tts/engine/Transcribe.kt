@@ -99,9 +99,24 @@ internal object Transcribe {
             word[0] + "i" + word.substring(1)
         else word
 
-    /** Replace unstressed 'oo' with 'o' for known loanwords. */
-    private fun shortenO(w: String, toks: List<String>): List<String> =
-        if (w in SHORT_O) toks.map { if (it == "oo") "o" else it } else toks
+    // kloun* paradigm (the loanword "klounas" = clown, and its declensions): the engine gives the `ou`
+    // STEM a SHORT o (k-l-o-w-..., not k-l-oo-w-...), unlike every other `ou` loanword (sound/out/loud/
+    // foulas... which are LONG and double their /o:/). Verified token-exact vs transcr4 for the whole
+    // paradigm. shortenO shortens these ONLY in the `ou` stem (the `oo` immediately before `w`), so a long
+    // ending stays long (klouno = k-l-o-w-n-OO keeps its genitive -o).
+    private val SHORT_OU = setOf(
+        "klounas", "klouno", "klounui", "klouną", "klounu", "kloune",
+        "klounai", "klounų", "klounams", "klounus", "klounais", "klounuose"
+    )
+
+    /** Replace unstressed 'oo' with 'o' for known loanwords; the kloun* set shortens only the `ou`-stem oo. */
+    private fun shortenO(w: String, toks: List<String>): List<String> = when {
+        w in SHORT_O  -> toks.map { if (it == "oo") "o" else it }
+        w in SHORT_OU -> toks.mapIndexed { i, t ->
+            if (t == "oo" && i + 1 < toks.size && toks[i + 1] == "w") "o" else t
+        }
+        else -> toks
+    }
 
     /** The word whose strlen the engine's s7c would see: the i-hiatus doubling feeds the engine-equivalent
      *  word (ios is rendered as iios), so the se8-arm midpoint must use the expanded length too -- gated

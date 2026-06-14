@@ -208,6 +208,17 @@ def transcribe(word):
 
 _SHORT_O = None
 
+# kloun* paradigm (the loanword "klounas" = clown, and its declensions): the engine gives the `ou`
+# STEM a SHORT o (k-l-o-w-..., not k-l-oo-w-...), unlike every other `ou` loanword (sound/out/loud/
+# foulas... which are LONG and double their /o:/). Verified token-exact vs transcr4 for the whole
+# paradigm. The shortening applies ONLY to the `oo` that HEADS the diphthong (the one followed by
+# `w`), so a long ending stays long (klouno = k-l-o-w-n-OO keeps its genitive -o). Diacritic forms are
+# literal UTF-8 (this .py is utf-8, per the coding cookie -- unlike the cp1257 data files). Listed words only.
+_SHORT_OU = frozenset({
+    "klounas", "klouno", "klounui", "klouną", "klounu", "kloune",
+    "klounai", "klounų", "klounams", "klounus", "klounais", "klounuose",
+})
+
 
 def _shorten_o(w, toks):
     """Lithuanian /o/ is normally LONG (oo); in many international loanwords it is SHORT (o). This is LEXICAL
@@ -223,4 +234,7 @@ def _shorten_o(w, toks):
             _SHORT_O = set()
     if w in _SHORT_O:
         return ["o" if t == "oo" else t for t in toks]
+    if w in _SHORT_OU:                                 # short-o ONLY in the `ou` stem (oo immediately before w)
+        return ["o" if (t == "oo" and i + 1 < len(toks) and toks[i + 1] == "w") else t
+                for i, t in enumerate(toks)]
     return toks

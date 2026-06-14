@@ -137,7 +137,10 @@ LONG2SHORT = {"ą": "a", "ę": "e", "į": "i", "ų": "u", "ė": "e"}
 
 def merge_diphthongs(recs):
     """Merge [vowel, glide] token pairs into one diphthong nucleus token, choosing the spelling whose
-    onset/body units exist in UNITSET. recs = [(raw_tok, dur, bps), ...]. Returns the same shape."""
+    onset/body units exist in UNITSET. recs = [(raw_tok, dur, bps), ...]. Returns 4-tuples
+    (tok, dur, bps, head) where `head` is the ORIGINAL nucleus-HEAD transcr token -- for a merged pair
+    that is the vowel token (the length-bearing 'oo' vs 'o' that the merged 'ou' spelling collapses);
+    for an unmerged token it is the token itself. _recs_to_full uses `head` as the raw (6th) field."""
     out, i = [], 0
     while i < len(recs):
         tok, dur, bps = recs[i]
@@ -165,15 +168,15 @@ def merge_diphthongs(recs):
             if score > 0:                          # found a recorded diphthong unit -> merge the pair
                 if any(c.isupper() for c in tok):  # carry the vowel's stress into the merged nucleus
                     best = best[0].upper() + best[1:]
-                out.append((best, dur + recs[i + 1][1], bps)); i += 2; continue
-        out.append((tok, dur, bps)); i += 1
+                out.append((best, dur + recs[i + 1][1], bps, tok)); i += 2; continue  # head = vowel tok
+        out.append((tok, dur, bps, tok)); i += 1
     return out
 
 def _recs_to_full(recs):
     """Shared post-processing: merge diphthongs + normalise each transcr4-format token to the unit
     alphabet, tagging stress. Used by frontend_free() (the pure-Python front-end)."""
     out = []
-    for tok, dur, bps in merge_diphthongs(recs):
+    for tok, dur, bps, head in merge_diphthongs(recs):
         # transcr marks the STRESSED phone with an uppercase letter (e.g. labas long-a "aA", gintaras "I")
         stressed = tok != "_" and any(c.isupper() for c in tok.replace("'", ""))
         # PALATALIZATION: transcr appends ' to a soft consonant (l'/tS'/dZ'). norm() strips it, but the soft
@@ -188,8 +191,10 @@ def _recs_to_full(recs):
         phone = "_" if tok == "_" else (low if isdiph else norm(tok))
         # RAW transcr token as a 6th parallel field (same pattern as `palatal`): norm() collapses the
         # SHORT stressed 'O' and the LONG 'oo'/'Oo'/'oO' to the same 'o', but the long-/o:/ a5 doubling
-        # needs that distinction for a HIATUS o (ios i-oo-s doubles, chaosas a-O does not).
-        out.append((phone, dur, bps, stressed, palatal, tok))
+        # needs that distinction for a HIATUS o (ios i-oo-s doubles, chaosas a-O does not) AND for an
+        # `ou` diphthong (sound/out long 'oo' double; kloun* short 'o' does not). For a MERGED diphthong
+        # `head` is the original nucleus-head vowel token (its length), not the merged 'ou' spelling.
+        out.append((phone, dur, bps, stressed, palatal, head))
     return out
 
 # ---------------------------------------------------------------- transcr4-FREE front-end
