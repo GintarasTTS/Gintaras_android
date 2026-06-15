@@ -457,6 +457,23 @@ internal object PlanBuilder {
         val words = text.split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.size <= 1) return buildPlanPhase2(text, question = question, rate = rate, pitch = pitch)
 
+        // VOWEL-VOWEL WORD GAP: a word ending in a vowel followed by a word starting with a vowel ("a alfa",
+        // "o oras") would otherwise join FLUSH -- the boundary declick blends the two vowels into one long
+        // vowel ("a alfa" -> "ąlfa"). The original engine keeps them apart with its `+` word boundary (a short
+        // silence = the per-word trailing tail this flush-join drops). Re-insert that engine word gap (the
+        // rate-scaled utterance tail, 661 smp natural) ONLY at a vowel|vowel boundary -- a consonant on either
+        // side already separates the words, so every consonant-boundary phrase stays byte-identical. The gap
+        // carries silence=true so Backend starts a fresh ring block after it (no declick bleed across the gap).
+        fun edges(w: String): Pair<Boolean, Boolean> {
+            val ph = Selection.frontendFree(w).map { it.phone }.filter { it != "_" }
+            return if (ph.isEmpty()) Pair(false, false)
+                   else Pair(Selection.isVowel(ph.first()), Selection.isVowel(ph.last()))
+        }
+        val edges = words.map { edges(it) }
+        val thr = if (rate != null) Backend.rateThr(rate) else 150
+        val gapLen = 22050 * (thr / 5) / 1000          // = the engine word gap (661 at the natural rate)
+        val gapS94 = Backend.pitchS94Seed(Backend.pitchPdc(pitch))
+
         data class WordSpan(val start: Int, val end: Int, val word: String, val wp: Backend.Plan)
         val allFrames = mutableListOf<Backend.Frame>()
         val wordSpans = mutableListOf<WordSpan>()
@@ -472,6 +489,11 @@ internal object PlanBuilder {
                 allFrames.add(f)
             }
             wordSpans.add(WordSpan(start, allFrames.size, w, wp))
+            // engine word gap at a vowel|vowel boundary so the two vowels don't merge (NOT part of any span)
+            if (!last && gapLen > 0 && edges[wi].second && edges[wi + 1].first) {
+                allFrames.add(Backend.Frame(pcm = IntArray(gapLen), s90 = 0, s94 = gapS94, pause = true,
+                    reseed = false, a5 = 0, silence = true, pi = null, key = "_wgap"))
+            }
         }
 
         val plan = Backend.Plan(allFrames.toList(), PHASE2_TAIL)

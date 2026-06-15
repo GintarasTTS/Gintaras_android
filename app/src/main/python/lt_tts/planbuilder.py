@@ -453,6 +453,21 @@ def build_plan_phrase(text, question=False, rate=None, pitch=None):
     words = [w for w in text.split() if w]
     if len(words) <= 1:
         return build_plan_phase2(text, question=question, rate=rate, pitch=pitch)
+    # VOWEL-VOWEL WORD GAP: a word ending in a vowel followed by a word starting with a vowel ("a alfa",
+    # "o oras") would otherwise join FLUSH -- the boundary declick blends the two vowels into one long vowel
+    # ("a alfa" -> "ąlfa"). The original engine keeps them apart with its `+` word boundary (a short silence
+    # = the per-word trailing tail that this flush-join drops). Re-insert that engine word gap (the rate-
+    # scaled utterance tail, 661 smp at natural rate) ONLY at a vowel|vowel boundary -- a consonant on either
+    # side already separates the words, so every consonant-boundary phrase stays byte-identical (the gap
+    # frame carries 'silence': True so backend.synthesize starts a fresh ring block after it = no declick
+    # bleed across the gap).
+    def _edges(w):                                    # (starts_with_vowel, ends_with_vowel) from the front-end
+        ph = [t[0] for t in G.front(w) if t[0] != "_"]
+        return (G.is_vowel(ph[0]), G.is_vowel(ph[-1])) if ph else (False, False)
+    edges = [_edges(w) for w in words]
+    thr = GS.rate_thr(rate) if rate is not None else 150
+    gap_len = 22050 * (thr // 5) // 1000              # = the engine word gap (661 at the natural rate)
+    GAP_S94 = GS.pitch_s94_seed(GS.pitch_pdc(pitch))
     allframes, alltail = [], list(_PHASE2_TAIL)
     word_spans = []                                   # (start_frame_index, end_frame_index, word) per word
     for wi, w in enumerate(words):
@@ -468,6 +483,10 @@ def build_plan_phrase(text, question=False, rate=None, pitch=None):
                 fr['se8_base'] = _se8_word_base(wi)    # the engine's phrase declination
             allframes.append(fr)
         word_spans.append((start, len(allframes), w, wp))
+        # engine word gap at a vowel|vowel boundary so the two vowels don't merge (NOT part of any word span)
+        if not last and gap_len > 0 and edges[wi][1] and edges[wi + 1][0]:
+            allframes.append({'pcm': [0] * gap_len, 's90': 0, 's94': GAP_S94, 'pause': True,
+                              'silence': True, 'reseed': False, 'a5': 0, 'pi': None, 'key': '_wgap'})
     plan = GS.Plan(allframes, alltail)
     plan.se8_ramp = True
     # EXACT per-word arm samples: a NO-ARM pass yields each frame's cumulative output IN-PHRASE (the arm offsets
