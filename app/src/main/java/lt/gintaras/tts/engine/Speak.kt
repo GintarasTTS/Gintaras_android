@@ -15,7 +15,6 @@ internal object Speak {
     private const val LEAD = 0.0
     private const val TAIL = 0.0
     private const val SPELL_GAP = 0.05
-    private const val CAPITAL_PITCH = 100
 
     private val PAUSE = mapOf(
         ',' to 0.03, ';' to 0.45, ':' to 0.45,
@@ -76,9 +75,10 @@ internal object Speak {
             if (clause.isNotEmpty()) {
                 val toks = clause.split(Regex("\\s+")).filter { it.isNotEmpty() }
                 if (capitalPitch && toks.isNotEmpty() && toks.all { isLetterToken(it) }) {
-                    // spell mode: render each letter discretely, raise uppercase
+                    // spell mode: render each letter discretely. Case is NOT pitch-distinguished -- the screen
+                    // reader has its own capital-letter setting, so a capital renders at the SAME pitch.
                     for (t in toks) {
-                        val lp = if (t.all { it.isUpperCase() && it.isLetter() }) CAPITAL_PITCH else pitch
+                        val lp = pitch
                         try {
                             val pcm = Backend.synthesize(
                                 PlanBuilder.buildPlanPhase2(t, rate = rate, pitch = lp),

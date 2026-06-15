@@ -323,7 +323,11 @@ def _first(cands, units): return next((c for c in cands if c in units), None)
 # (`--cho`, not `-cho`). Without this map build_tiling looks for a nonexistent `xo-` and DROPS the x (choras
 # -> "oras"). Verified vs the engine Lookup (choras -> cho-/--cho, chaosas -> cha-/--cha).
 _CSPELL = {"x": "ch"}                              # /x/ -> "ch"
-_CDBLBODY = {"x"}                                  # consonants whose `-Cv` body is double-dashed (`--chv`)
+_CDBLBODY = {"x", "dž"}                             # /x/=ch AND dž take a DOUBLE-dashed body (`--cho`, `--džo`):
+                                                   # the voice recorded dž bodies ONLY double-dashed (no `-džo`),
+                                                   # so a single dash dropped to the palatal `o|` pipe and added
+                                                   # an i-glide -- Džordana -> "Džiordana". Verified vs the engine
+                                                   # Lookup (Džordana -> džo-/--džo/-or, no pipe).
 
 
 def _cs(c):

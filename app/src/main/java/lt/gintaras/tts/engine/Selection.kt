@@ -39,7 +39,10 @@ internal object Selection {
     private val FIXED_DIPH = mapOf(Pair("a","j") to "aj", Pair("e","j") to "ei", Pair("a","w") to "au")
 
     // Phoneme keys that use double-dashed body
-    private val CDBL_BODY = setOf("x")   // /x/ (ch) body is "--cho" not "-cho"
+    private val CDBL_BODY = setOf("x", "dž")   // /x/ (ch) AND dž bodies are "--cho"/"--džo" not "-cho"/"-džo":
+                                               // dž bodies were recorded ONLY double-dashed, so a single dash
+                                               // fell through to the palatal "o|" pipe and added an i-glide
+                                               // (Džordana -> "Džiordana"). Engine-verified.
     private val CSPELL = mapOf("x" to "ch")  // /x/ -> "ch" orthographic
 
     // F0 model constants

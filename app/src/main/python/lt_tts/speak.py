@@ -24,8 +24,6 @@ def _sil(sec):
     return [0] * int(sec * SR)
 
 
-CAPITAL_PITCH = 100              # raise an UPPERCASE spelled letter to the highest pitch (typing/letter-by-
-                                # letter distinction of capital vs lowercase -- common screen-reader practice).
 _SPELL_GAP = 0.05               # gap between discretely-spelled letters (s)
 
 
@@ -64,12 +62,13 @@ def synth_text(text, rate=None, pitch=None, capital_pitch=True,
         if clause:
             toks = clause.split()
             # SPELL MODE: every token is a spelled letter/abbreviation (typing letter-by-letter). Render each
-            # DISCRETELY, and raise an UPPERCASE token to CAPITAL_PITCH so capitals are audibly distinguished
-            # from lowercase. Normal prose (any non-spelled token) falls through to the continuous phrase path
-            # -> a sentence-initial capital (Vilnius) is NOT raised, only true letter-spelling.
+            # DISCRETELY (a small gap between letters). Case is NOT pitch-distinguished: the screen reader has
+            # its own capital-letter setting, so the engine renders a capital at the SAME pitch as lowercase
+            # (capital_pitch only gates whether spelling is discrete). Normal prose (any non-spelled token)
+            # falls through to the continuous phrase path.
             if capital_pitch and toks and all(_is_letter_token(t) for t in toks):
                 for t in toks:
-                    lp = CAPITAL_PITCH if t.isupper() else pitch
+                    lp = pitch
                     try:
                         out += list(GS.synthesize(PF.build_plan_phase2(t, rate=rate, pitch=lp),
                                                   rate=rate, pitch=lp))
