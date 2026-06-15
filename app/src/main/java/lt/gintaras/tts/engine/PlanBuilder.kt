@@ -132,8 +132,10 @@ internal object PlanBuilder {
             }
         }
 
-        // unburstable stop: insert closure + burst frames (e.g. 'k' in "sveiki")
-        for (ii in 1 until phones.size - 1) {
+        // unburstable stop: insert closure + burst frames (e.g. 'k' in "sveiki", or a WORD-INITIAL
+        // 'k' in kitas/ki/kinija -- no 'ki-' onset, so it sits at phones[0] and the scan must start at 0;
+        // the closure doubles as the leading silence + the burst = the 1704 samples dropped word-initially).
+        for (ii in 0 until phones.size - 1) {
             val p = phones[ii]
             if (p.isNotEmpty() && p[0] in STOPS && ii + 1 < phones.size
                 && Selection.isVowel(phones[ii + 1])

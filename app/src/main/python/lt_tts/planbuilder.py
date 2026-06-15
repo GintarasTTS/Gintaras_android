@@ -119,10 +119,15 @@ def select_frames(word):
     # generative stream aligns 1:1 with the captured skeleton (build_plan_phase2 then substitutes their pool
     # pcm at the matching slots). Burst fid is per-stop (measured from the engine M-markers; only 'k' so far).
     _BURST_FID = {"k": 4788}
-    for i in range(1, len(phones) - 1):
+    for i in range(0, len(phones) - 1):
         p = phones[i]
         # the engine inserts the closure+burst whenever the stop's onset is absent and a VOWEL follows (sveiki
-        # ei-K-i; penki n-K-i) -- the preceding phone may be a vowel OR a consonant (the n in penki).
+        # ei-K-i; penki n-K-i) -- the preceding phone may be a vowel OR a consonant (the n in penki) OR NOTHING
+        # at all: a WORD-INITIAL unburstable stop (kitas/ki/kinija k-i: no 'ki-' onset) sits at phones[0], so the
+        # scan must start at 0. The closure ('ka-'[0], ~994 smp) doubles as the word's leading silence and the
+        # burst (4788, ~710 smp) follows -- exactly the 1704 samples that were dropped word-initially (the loop
+        # used to start at 1, so kitas/ki/kita/kinas/kinija lost their whole initial 'k'). Mid-word stops are
+        # unchanged: pekinas p-e-k-i still resolves to its k at i=2 (p has a 'pe-' onset, so i=0 is skipped).
         if p in G.STOPS and G.is_vowel(phones[i + 1]) \
                 and G.onset_unit(p, phones[i + 1][0], units) is None and p in _BURST_FID:
             clos = units.get(p + "a-", [None])[0]          # closure = the stop's 'Ca-'[0] (a silence frame)
