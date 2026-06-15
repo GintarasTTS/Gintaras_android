@@ -254,16 +254,22 @@ internal object Selection {
         }
     }
 
-    fun glideUnit(v1: String, g: String, stressed: Boolean, units: Map<String, List<Int>>): String? {
+    // prevSoft = the preceding consonant is palatalized: a u-offglide (`ui`) after a SOFT consonant takes
+    // the `u|j` PIPE-glide that carries the palatal coloring (kurjeriui/vyriui r'uj, broliui/arkliui l'uj
+    // -> u|j) vs the dashed `-uj` after a hard one (puikus p-uj). `u|j` is the ONLY recorded pipe-glide, so
+    // every other offglide (aj/ej/oj) falls through. Mirrors the u|/ū| palatalization rule.
+    fun glideUnit(v1: String, g: String, stressed: Boolean, units: Map<String, List<Int>>,
+                  prevSoft: Boolean = false): String? {
         val base = (LONG2SHORT[v1[0]] ?: v1[0]).toString()
         val cands: List<String> = if (g in listOf("u","w",U_OG)) {
             if (stressed) listOf("$base$U_OG","-$base$U_OG","${base}u","-${base}u")
             else listOf("${base}u","-${base}u","$base$U_OG","-$base$U_OG")
         } else {
-            if (v1 == A_OG)
+            val base0 = if (v1 == A_OG)
                 listOf("-${v1}j","${v1}j","${base}j","-${base}j")
             else
                 listOf("${base}j","-${base}j","-${v1}j","${base}i","-${base}i")
+            if (prevSoft) listOf("$base|j") + base0 else base0
         }
         return first(cands, units)
     }
@@ -406,7 +412,9 @@ internal object Selection {
                             if (dbod != null) { chain.add(dbod); pbod = dbod }
                         }
                         falling -> {
-                            val gl = glideUnit(v[0].toString(), v[1].toString(), vst, units)
+                            // SOFT onset + `ui` -> the `u|j` pipe-glide (kurjeriui/vyriui/broliui).
+                            val gl = glideUnit(v[0].toString(), v[1].toString(), vst, units,
+                                               prevSoft = (palatals != null && palatals[i]))
                             if (gl != null && gl.startsWith("-")) {
                                 val nbody = bodyUnit(c, v[0].toString(), false, units)
                                 if (nbody != null) { chain.add(nbody); pbod = nbody }

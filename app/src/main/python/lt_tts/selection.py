@@ -372,13 +372,18 @@ U_OG = bytes([0xf8]).decode("cp1257")              # ų (cp1257 0xf8) -- the STR
 A_OG = bytes([0xe0]).decode("cp1257")              # ą (cp1257 0xe0)
 FALLING_GLIDE = set("iju") | {U_OG}                # 2nd element of a FALLING diphthong (ai ei au ui oi)
 
-def glide_unit(v1, g, stressed, units):
+def glide_unit(v1, g, stressed, units, prev_soft=False):
     """SINGLE recorded unit for a FALLING diphthong (nucleus+offglide), e.g. au/aų/aj/-àj/-ej/-uj/-oj.
     The engine plays the syllable as onset `Cv1-` + this ONE glide unit -- NOT onset+body of the
     diphthong (that articulates the vowel twice = the audible doubling). Spelling/dash form is fixed
     by what the voice recorded; candidate order below reproduces every hooked engine choice:
       taip a+j->aj  metai a+j->aj  kaina ą+j->-àj  veidas ę+j->-ej  puikus u+j->-uj  o+j->-oj
-      tauta a+u->au (unstressed)   laukas a+u->aų (stressed)."""
+      tauta a+u->au (unstressed)   laukas a+u->aų (stressed).
+    `prev_soft` = the preceding consonant is palatalized: a u-offglide (`ui`) after a SOFT consonant
+    takes the `u|j` PIPE-glide that carries the palatal coloring (kurjeriui/vyriui r'uj, broliui/arkliui
+    l'uj -> u|j), vs the dashed `-uj` after a hard one (puikus p-uj). `u|j` is the ONLY recorded pipe-
+    glide, so every other offglide (aj/ej/oj) falls through to the dashed forms. Mirrors the cont.29
+    u|/ū| palatalization rule; gated on the unit existing so it can never change a non-`ui` syllable."""
     base = LONG2SHORT.get(v1, v1)                   # ascii base of the first vowel (ą->a, ę/ė->e, ų->u)
     if g in ("u", "w", U_OG):                       # u-offglide (au): stressed picks the ų(0xf8) spelling
         cands = ([base + U_OG, "-" + base + U_OG, base + "u", "-" + base + "u"] if stressed
@@ -388,6 +393,8 @@ def glide_unit(v1, g, stressed, units):
             cands = ["-" + v1 + "j", v1 + "j", base + "j", "-" + base + "j"]
         else:
             cands = [base + "j", "-" + base + "j", "-" + v1 + "j", base + "i", "-" + base + "i"]
+        if prev_soft:                              # SOFT preceding consonant -> the `u|j` pipe-glide first
+            cands = [base + "|j"] + cands
     return _first(cands, units)
 
 def diph_units(v1v2, units):
@@ -534,7 +541,9 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                     # self-contained nucleus+offglide (taip, laukas) -> the glide IS the body. DASHED `-Vj`
                     # (`-uj`/`-àj`/`-ej`) -> engine sustains the nucleus (`-Cv` body) THEN the offglide
                     # (kaina kà-/-kà/-àj). No diphthong onset+body pair -> no vowel doubling.
-                    gl = glide_unit(v[0], v[1], vst, units)
+                    # A SOFT (palatalized) onset + `ui` -> the `u|j` pipe-glide (kurjeriui/vyriui/broliui).
+                    gl = glide_unit(v[0], v[1], vst, units,
+                                    prev_soft=(palatals is not None and palatals[i]))
                     if gl and gl.startswith("-"):
                         nbody = body_unit(c, v[0], False, units)
                         if nbody: chain.append(nbody); pbod = nbody
