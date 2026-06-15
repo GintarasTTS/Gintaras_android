@@ -433,12 +433,13 @@ internal object Selection {
                             if (dbod != null) { chain.add(dbod); pbod = dbod }
                         }
                         else -> {
-                            val uNearFinal = (i + 1 == n - 1) ||
-                                    (i + 2 == n - 1 && !isVowel(phones[n - 1]))
-                            val softFinalU = v == U_OG && uNearFinal &&
-                                    palatals != null && palatals[i]
+                            // A LONG-ū/ų after a SOFT consonant takes the pipe body `ū|` in ANY position
+                            // (word-final ačiū/svečių AND medial siųsti/žiūri); hard stays dashed (sūnų/vyrų).
+                            // The old word-final/near-final gate dropped palatalization on a medial long-ū
+                            // (siųsti read "sųsti", žiūri "žūri"). Mirrors the short-u rule. Engine-verified.
+                            val softLongU = v == U_OG && palatals != null && palatals[i]
                             val prevSoft = palatals?.getOrNull(i) ?: true
-                            val bod = bodyUnit(c, v, usePipe(phones, i + 1, v, prevSoft) || softFinalU, units)
+                            val bod = bodyUnit(c, v, usePipe(phones, i + 1, v, prevSoft) || softLongU, units)
                             if (bod != null) { chain.add(bod); pbod = bod }
                         }
                     }

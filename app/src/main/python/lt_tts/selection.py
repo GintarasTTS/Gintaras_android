@@ -565,16 +565,16 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                     if dion: chain.append(dion); dipkeys.add(dion)
                     if dbod: chain.append(dbod); pbod = dbod
                 else:
-                    # A word-final LONG-ū (0xf8) after a SOFT (palatalized) consonant takes the pipe body `ū|`
-                    # (ačiū/svečių/brolių -> ū|); after a HARD consonant it keeps the dashed -Cū (sūnų/vyrų).
-                    # Verified vs the engine Lookup on 11 words (7 soft->pipe, 4 hard->dashed). Gated on the
-                    # ū| unit existing; no passing word ends in soft-C + long-ū so this can't degrade them.
-                    # long-ū pipe after a soft consonant: word-final OR before exactly ONE final consonant
-                    # (jūs j-ū-s -> ū| before the final s; sūnų hard s -> dashed).
-                    u_near_final = (i + 1 == n - 1) or (i + 2 == n - 1 and not is_vowel(phones[n - 1]))
-                    soft_finalU = (v == U_OG and u_near_final and palatals is not None and palatals[i])
+                    # A LONG-ū/ų (0xf8) after a SOFT (palatalized) consonant takes the pipe body `ū|` in ANY
+                    # position (ačiū/svečių/brolių word-final, siųsti/žiūri MEDIAL -> ū|); after a HARD consonant
+                    # it keeps the dashed -Cū (sūnų/vyrų/namų). This mirrors the short-u rule (_use_pipe: u after
+                    # a soft consonant -> u| anywhere): the engine pipes the soft long-ū regardless of position,
+                    # so the old word-final/near-final gate dropped the palatalization on a medial long-ū
+                    # (siųsti read "sųsti", žiūri "žūri"). Verified vs the engine Lookup: siųsti/žiūri -> ū|,
+                    # sūnų/vyrų -> -Cū. Gated on the ū| unit existing; the hard consonants stay dashed.
+                    soft_longU = (v == U_OG and palatals is not None and palatals[i])
                     prev_soft = (palatals[i] if palatals is not None else True)   # preceding consonant soft?
-                    bod = body_unit(c, v, _use_pipe(phones, i + 1, v, prev_soft) or soft_finalU, units)
+                    bod = body_unit(c, v, _use_pipe(phones, i + 1, v, prev_soft) or soft_longU, units)
                     if bod: chain.append(bod); pbod = bod
                 prev_pipe = bool(pbod and pbod.endswith("|"))
                 prev_bare = False                  # dashed/pipe body -> following coda stays standalone
