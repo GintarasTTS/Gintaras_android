@@ -1,24 +1,19 @@
 package lt.gintaras.tts.engine
 
-import java.nio.charset.StandardCharsets
-
 // Kotlin port of lt_tts/symbols.py
-// Optional symbol reading: emoji, Cyrillic, Latvian-unique letters.
+// Optional symbol reading: emoji, punctuation, Cyrillic, Latvian-unique letters.
+// emoji.tsv and punct.tsv share one flat `<char><TAB><text>` format and matcher; split into two files only
+// so the host can toggle them independently (emoji is content, punctuation a screen reader usually names).
 
 internal object Symbols {
 
-    private var emojiMap: Map<String, String>? = null
-    private var emojiRe: Regex? = null
-    private var emojiReNoPunct: Regex? = null   // emoji regex EXCLUDING punctuation-named entries (the
-                                                // readPunctuation=false table: a kept delimiter like the
-                                                // em dash must pause, not be named)
-    private var emojiLoaded = false
+    private val maps = mutableMapOf<String, Pair<Map<String, String>, Regex?>>()  // filename -> (map, regex)
     private val letterMaps = mutableMapOf<String, Map<String, Map<String, String>>?>()
 
     // clause delimiters that drive pauses / the question contour -- never stripped
     private val DELIMS = setOf(',', ';', ':', '.', '!', '?', '—')
     // text-normalization symbols mainstream TTS engines DO read as part of plain text (50% -> "proc",
-    // §3, A&B, #1, 20°) -- kept spoken even with punctuation off
+    // §3, A&B, #1, 20°) -- kept spoken even with punctuation off (they live in emoji.tsv, not punct.tsv)
     private val PUNCT_KEEP = setOf('%', '‰', '§', '¶', '&', '#', '°')
 
     private fun isPunctChar(ch: Char): Boolean {
@@ -32,11 +27,6 @@ internal object Symbols {
                t == Character.FINAL_QUOTE_PUNCTUATION.toInt() ||
                t == Character.MODIFIER_SYMBOL.toInt()      // Sk: ` ´ ^ ¨ spacing accents
     }
-
-    // A table key that is a single punctuation char -- the entries gated by readPunctuation
-    // (real emoji and the PUNCT_KEEP normalization symbols are never gated).
-    private fun isPunctKey(k: String): Boolean =
-        k.length == 1 && k[0] !in PUNCT_KEEP && isPunctChar(k[0])
 
     /** Replace every Unicode punctuation char (category P*) and spacing accent (Sk) with a space --
      *  the 'skip punctuation' reading every other TTS does. Clause delimiters survive (they only time
@@ -69,12 +59,14 @@ internal object Symbols {
     // Latvian-unique letters (as in latvian.tsv)
     private val LAV_RE = Regex("[āĀēĒīĪōŌŗŖļĻņŅķĶģĢ]+")
 
-    private fun loadEmoji(): Triple<Map<String, String>, Regex?, Regex?> {
-        if (emojiLoaded) return Triple(emojiMap ?: emptyMap(), emojiRe, emojiReNoPunct)
+    /** Load a flat `<char(s)><TAB><spoken text>` table (emoji.tsv / punct.tsv) into a {key: text} map and a
+     *  combined regex (longest key first, so a multi-codepoint ZWJ emoji wins over its parts). Cached; a
+     *  missing/unreadable file yields an empty map and a null regex (the feature becomes a no-op). */
+    private fun loadMap(filename: String): Pair<Map<String, String>, Regex?> {
+        maps[filename]?.let { return it }
         val map = mutableMapOf<String, String>()
         try {
-            val lines = Assets.lines("emoji.tsv")
-            for (line in lines) {
+            for (line in Assets.lines(filename)) {
                 val l = line.trimEnd('\r', '\n')
                 if (l.isEmpty() || l.startsWith("#") || '\t' !in l) continue
                 val idx = l.indexOf('\t')
@@ -86,12 +78,16 @@ internal object Symbols {
         val re = if (map.isNotEmpty())
             Regex(map.keys.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) })
         else null
-        val nop = map.keys.filter { !isPunctKey(it) }
-        val reNop = if (nop.isNotEmpty())
-            Regex(nop.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) })
-        else null
-        emojiMap = map; emojiRe = re; emojiReNoPunct = reNop; emojiLoaded = true
-        return Triple(map, re, reNop)
+        val result = Pair(map.toMap(), re)
+        maps[filename] = result
+        return result
+    }
+
+    /** Replace every key of `filename`'s table found in `text` with its spoken text (space-padded). */
+    private fun subMap(text: String, filename: String): Pair<String, Boolean> {
+        val (map, re) = loadMap(filename)
+        if (re == null || !re.containsMatchIn(text)) return Pair(text, false)
+        return Pair(re.replace(text) { " ${map[it.value]} " }, true)
     }
 
     private fun loadLetters(filename: String): Map<String, Map<String, String>>? {
@@ -100,8 +96,7 @@ internal object Symbols {
         val sounds = mutableMapOf<String, String>()
         try {
             var cur = ""
-            val lines = Assets.lines(filename)
-            for (line in lines) {
+            for (line in Assets.lines(filename)) {
                 val l = line.trimEnd('\r', '\n')
                 if (l.isEmpty() || l.startsWith("#")) continue
                 when (l) {
@@ -128,7 +123,6 @@ internal object Symbols {
         val sounds = blocks["sounds"] ?: emptyMap()
         val out = StringBuilder()
         var changed = false
-        val chars = text.codePoints().toArray()
         val strs = text.map { it.toString() }
         val n = strs.size
         var i = 0
@@ -162,21 +156,21 @@ internal object Symbols {
         var t = text
         var changed = false
 
-        // Punctuation is SKIPPED by default: a screen reader (TalkBack) expands punctuation into words
-        // ITSELF according to the user's punctuation-verbosity setting, so the engine staying silent on
-        // it is what makes that setting work (naming it here made quotes etc. ALWAYS spoken).
-        if (!readPunctuation) {
+        // Punctuation runs FIRST and on the ORIGINAL text. readPunctuation=true names the punct.tsv marks;
+        // the default (false) strips punctuation BEFORE the emoji pass, so stray quotes/brackets never reach
+        // the word pipeline and a screen reader's own punctuation setting decides whether the user hears them.
+        // Naming punct before emoji keeps the quote chars INSIDE an emoji's name literal (never re-named).
+        if (readPunctuation) {
+            val (nt, c) = subMap(t, "punct.tsv")
+            t = nt; changed = changed || c
+        } else {
             val t2 = stripPunct(t)
             if (t2 != t) { t = t2; changed = true }
         }
 
         if (readEmoji) {
-            val (emap, ereFull, ereNop) = loadEmoji()
-            val ere = if (readPunctuation) ereFull else ereNop
-            if (ere != null && ere.containsMatchIn(t)) {
-                t = ere.replace(t) { " ${emap[it.value]} " }
-                changed = true
-            }
+            val (nt, c) = subMap(t, "emoji.tsv")
+            t = nt; changed = changed || c
         }
 
         if (readCyrillic && CYR_RE.containsMatchIn(t)) {

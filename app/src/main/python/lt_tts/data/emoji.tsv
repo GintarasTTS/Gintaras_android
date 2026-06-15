@@ -5,65 +5,12 @@
 🏽	rusvos odos
 🏾	tamsios odos
 🏿	itin tamsios odos
-‾	brūkšnys viršuje
-‐	brūkšnelis
-–	brūkšnys
-—	ilgas brūkšnys
-―	horizontalus brūkšnys
-・	katakana vidurinis taškas
-،	arabų k. kablelis
-、	ideografinis kablelis
-¡	apverstas šauktukas
-¿	apverstas klaustukas
-؟	arabų k. klaustukas
-‽	klaustukas ir šauktukas
-…	daugtaškis
-。	ideografinis taškas
-·	interpunktas
-‘	kairysis apostrofas
-’	dešinysis apostrofas
-‚	apatinis dešinysis apostrofas
-“	kairiosios kabutės
-”	dešiniosios kabutės
-„	apatinės dešiniosios kabutės
-«	atidaromosios laužtinės kabutės
-»	uždaromosios laužtinės kabutės
-〈	atidaromasis kampinis skliaustas
-〉	uždaromasis kampinis skliaustas
-《	atidaromasis dvigubas kampinis skliaustas
-》	uždaromasis dvigubas kampinis skliaustas
-「	atidaromasis pusinio kampo skliaustas
-」	uždaromasis pusinio kampo skliaustas
-『	atidaromasis tuščiavidurio pusinio kampo skliaustas
-』	uždaromasis tuščiavidurio pusinio kampo skliaustas
-【	atidaromasis juodo lęšio formos skliaustas
-】	uždaromasis juodo lęšio formos skliaustas
-〔	atidaromasis vėžlio kiauto formos skliaustas
-〕	uždaromasis vėžlio kiauto formos skliaustas
-〖	atidaromasis tuščiaviduris lęšio formos skliaustas
-〗	uždaromasis tuščiaviduris lęšio formos skliaustas
 §	pastraipos simbolis
 ¶	paragrafo simbolis
-/	pasvirasis brūkšnys
-\	įžambus kairinis brūkšnys
 &	ampersendas
 #	grotelės
 %	proc
 ‰	promil
-†	kryžiaus ženklas
-‡	dvigubas kryžiaus ženklas
-•	ženklelis
-‧	kėlimo brūkšnelis
-′	pagrindinis simbolis
-″	dvigubas pagrindinis simbolis
-‴	trigubas pagrindinis simbolis
-‸	stogelis
-※	atskaitos žyma
-⁂	asterizmas
-`	kairinis kirtis
-´	dešininis kirtis
-^	stogelis
-¨	diarė
 °	laipsnis
 ℗	garso įrašo autorių teisių simbolis
 ←	į kairę nukreipta rodyklė
@@ -1803,13 +1750,10 @@
 ➗	paryškintas dalybos ženklas
 🟰	paryškintas lygybės ženklas
 ♾	begalybė
-‼	du šauktukai
-⁉	šauktukas ir klaustukas
 ❓	raudonas klaustukas
 ❔	baltas klaustukas
 ❕	baltas šauktukas
 ❗	raudonas šauktukas
-〰	vingiuotas brūkšnys
 💱	valiutos keitimas
 💲	paryškintas dolerio ženklas
 ⚕	medicinos simbolis
@@ -1826,7 +1770,6 @@
 ❎	kryžiuko mygtukas
 ➰	kilpelė
 ➿	dviguba kilpelė
-〽	dalių apkeitimo ženklas
 ✳	aštuoniakampė žvaigždutė
 ✴	aštuoniakampė žvaigždė
 ❇	kibirkštėlė
