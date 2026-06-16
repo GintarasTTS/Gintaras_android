@@ -495,6 +495,15 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                 if ivk: elems.append(("body", ivk, _grain_target(ivk, units, _is_long_v(p[0], ivk),
                                       dur * K_DUR - nd), True, True, f0))
                 if gl: elems.append(("dip", gl, None, True, True, f0))
+            elif len(p) == 2 and p.lower() == "ou":
+                # word-initial `ou` (out/oups...): same fix as the C+`ou` path -- the `-ou` body is a steady
+                # `u`, so render the o-HEAD as a real long-o body (bare `o`, doubled by the a5 gate) then the
+                # `-ou` u-offglide (native). Without this "out" reads "ut". (see the C+V branch note.)
+                ohead = init_vowel("o", units)
+                if ohead: elems.append(("body", ohead, _grain_target(ohead, units, True,
+                                        dur * K_DUR), True, True, f0))
+                off = _first(["-ou", "ou"], units)
+                if off: elems.append(("dip", off, None, True, True, f0))
             elif len(p) == 2:
                 on, bod = diph_units(p, units)
                 if on:  elems.append(("dip", on, None, True, True, f0))
@@ -512,15 +521,19 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                 # ONSET consonant + its vowel: Cv- (native) then the body (-Cv / v|), consumed together
                 v, vst, vdur, vf0 = nxt, stresses[i + 1], durs[i + 1], f0s[i + 1]
                 kv = _kv(v); v1 = v[0] if len(v) == 2 else v
-                # SHORT-i combined onset `Ci|--` (ti|--): a clean 2-frame take of the C-into-pipe-i
-                # transition. Engine-verified 2026-06-12 (capture_units grid): the engine uses ti|-- for
-                # EVERY t+i syllable, regardless of position -- final (eiti, naktis/dantis with coda) AND
-                # non-final (tikras/tinas/tilo/optika) -- so there is NO last-vowel gate. The OTHER recorded
-                # combos lo|--/lu|-- are NEVER used by the engine (stalu/galu final-lu and metalo/salos/tilo
-                # final-lo all play the plain lu-/lo- onset+body pair; the old `v in 'iu' and last_vowel`
-                # gate wrongly fired lu|-- on stalu/galu). Still gated on the unit existing (only ti|--
-                # recorded for i), so brolis li|-- absent -> li- backs off as before.
-                combo = (c + v + "|--") if (len(v) == 1 and v == "i") else None
+                # `Cv|--` combined SOFT-syllable unit (ti|-- / lu|-- / lo|--): the engine plays the C-into-
+                # palatalized-vowel as ONE 2-frame transition unit, then a body. Used for t+i (i always
+                # palatalizes -> ti|--) AND a SOFT (palatalized) consonant + u/o (liutas l'u -> lu|--,
+                # liokajus l'o -> lo|--; engine CMapStringToOb::Lookup-verified). A HARD consonant + u/o
+                # (stalu l-u, metalo l-o, galu, salos) plays the plain Cv-/-Cv pair -- so the u/o combos
+                # are GATED ON PALATALIZATION. (cont.26 wrongly fired lu|-- on the HARD stalu/galu and so
+                # restricted the combo to i only, which dropped the SOFT liu -> the engine reads "liu" as
+                # lu|--+-lu but lt_tts gave lu-+u|.) Still gated on the unit existing (only ti|--/lu|--/lo|--).
+                soft_c = bool(palatals is not None and palatals[i])
+                combo = (c + v + "|--") if (len(v) == 1 and (v == "i" or (v in "uo" and soft_c))) else None
+                # after the combo the body is the DASHED -Cv only for u (liutas lu|-- + -lu, engine-verified);
+                # i and o keep their pipe body (naktis ti|-- + i|, liokajus lo|-- + o|). (Lookup-confirmed.)
+                combo_uu = bool(combo and combo in units and v == "u")    # only u -> dashed body
                 # COMBINED consonant + rising-diphthong pipe unit `Cuo|`/`Cie|` (juodas juo|): the voice recorded
                 # the whole C-into-diphthong syllable as ONE stretchable body -> NO separate onset. Gated on the
                 # unit existing (only juo| so far), so other C+uo/ie back off to the onset+body pair below.
@@ -559,6 +572,19 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                         chain.append(gl); dipkeys.add(gl)
                 elif diph_combo:
                     chain.append(diph_combo); pbod = diph_combo   # the Cuo|/Cie| combined body (no onset)
+                elif len(v) == 2 and v.lower() == "ou":
+                    # `ou` loanword diphthong (sound/about/out/loud/house/group...). The voice has NO `ou-`
+                    # onset, so the head `o` was only ever carried by the `-ou` body -- but that recording is
+                    # acoustically a STEADY `u` (F1~320, the o is absent), so the old `-ou` (even doubled)
+                    # rendered "sound" -> "sund"/"sūnd". Render the o-HEAD with a real long-o body `-Co`
+                    # (F1~450, like every clean long-o: lova -lo, tonas -to) -- that is the audible `o` and it
+                    # carries the long-/o:/ a5 doubling -- then the `-ou` unit as the brief `u` offglide (native,
+                    # NOT doubled). klounas keeps a SHORT o (head 'o' not 'oo' -> a5 gate doesn't double).
+                    # Only `ou`: native Lithuanian has no oo+u diphthong, so no native word is touched.
+                    ohead = body_unit(c, "o", False, units)        # -Co steady long o = the audible head
+                    if ohead: chain.append(ohead); pbod = ohead
+                    off = _first(["-ou", "ou"], units)             # the u-offglide, played native
+                    if off: chain.append(off); dipkeys.add(off)
                 elif len(v) == 2:
                     # RISING diphthong (uo/ie) or long-ą+u (saule): recorded onset+body pair.
                     dion, dbod = diph_units(v, units)
@@ -574,7 +600,10 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                     # sūnų/vyrų -> -Cū. Gated on the ū| unit existing; the hard consonants stay dashed.
                     soft_longU = (v == U_OG and palatals is not None and palatals[i])
                     prev_soft = (palatals[i] if palatals is not None else True)   # preceding consonant soft?
-                    bod = body_unit(c, v, _use_pipe(phones, i + 1, v, prev_soft) or soft_longU, units)
+                    # after a lu|-- combo the sustain is the plain DASHED -lu body (the soft coloring is in
+                    # the combo); i (ti|--) and o (lo|--) keep their i|/o| pipe body. (engine-Lookup verified.)
+                    use_pipe = False if combo_uu else (_use_pipe(phones, i + 1, v, prev_soft) or soft_longU)
+                    bod = body_unit(c, v, use_pipe, units)
                     if bod: chain.append(bod); pbod = bod
                 prev_pipe = bool(pbod and pbod.endswith("|"))
                 prev_bare = False                  # dashed/pipe body -> following coda stays standalone
@@ -623,14 +652,21 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                 nxt_unburst = (nxt in STOPS and i + 2 < n and is_vowel(phones[i + 2])
                                and onset_unit(nxt, phones[i + 2][0], units) is None)
                 # An `n` before `k` (the velar `nk` cluster, n->ŋ) is rendered STANDALONE (the long nasal), not
-                # as the `-Vc` coda: engine penki/penkiolika e-n-K -> `n`, not `-en`. This is k-specific: dantis
-                # a-n-T keeps the `-an` coda, dangus a-n-G keeps `-an` (gintaras n-t is already standalone via
-                # the i| pipe rule). Verified vs the engine Lookup.
-                n_before_k = (c in "nN" and nxt in "kK") if nxt else False
-                # `r` before `t` -> STANDALONE `r` (gerti r-t -> `r`, not the `-ęr` coda which DOES exist). Like
-                # n-before-k, this is a specific cluster: r before a VOICED stop keeps its coda (darbas r-b -> -ąr).
-                # (nxt may be None for a word-final consonant, e.g. 'ir' -> r is last; guard against that.)
-                r_before_t = (c in "rR" and nxt in "tT") if nxt else False
+                # as the `-Vc` coda: engine penki/penkiolika/renkasi E-n-K -> `n`, not `-en`. This is k-specific:
+                # dantis a-n-T keeps the `-an` coda, dangus a-n-G keeps `-an`. BUT only after a FRONT vowel (e):
+                # after `a`/`ą` the engine DOES use the `-an`/`-ąn` coda (lankas/rankos -an, bankas/tankas/sankaba
+                # -ąn -- engine-Lookup verified, audit 2026-06-16). So gate the standalone on pv not being a/ą.
+                n_before_k = (c in "nN" and nxt in "kK" and pv not in ("a", A_OG)) if nxt else False
+                # `r` before a stop/nasal: STANDALONE after the FRONT vowel `e` (gerti/vertas e-r-t, verkti
+                # e-r-k, internetas e-r-n -> `r`) and after `i` (and the long front vowels) before `t`
+                # (virti/spirti i-r-t); but the `-Vr` CODA after a BACK vowel a/ą/u (vartai -ar, kartis -ąr,
+                # turtas/durti/kurti -ur) and after `i` before a NON-t consonant (pirkti/kirsti/dirbti -> -ir).
+                # darbas r-b -> -ąr (voiced stop) keeps its coda too. Engine-Lookup verified (audit 2026-06-16).
+                # (The old rule made ALL r-before-t standalone -- wrong for a/ą/u -- and never made r-before-k/n
+                # standalone -- wrong for the e- words. nxt may be None for a word-final r; guard against that.)
+                r_before_t = (((nxt in "tTkKnN" and pv == "e") or
+                               (nxt in "tT" and pv not in ("a", A_OG, "u")))
+                              if (nxt and c in "rR") else False)
                 # A syllable-final `l` before a SOFT (palatalized) consonant uses the recorded `l|` pipe (the
                 # long soft-l): kalbėti l-b'(ė) / valgyti l-g'(y) / vilnius l-n'(iu) -> `l|`. Before a HARD
                 # consonant the engine keeps the `-Vl` coda (kalba l-b(a) -> `-al`). Only `l|` is recorded (no
@@ -659,7 +695,11 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                         coda_cands.append("-" + LONG2SHORT[pv] + c)
                     if pv == "u":
                         coda_cands.append("-o" + c)
-                    if c not in SONOR and prev_bare:
+                    # the GENERIC `-ac` fires only after a bare MONOPHTHONG (len-1 vowel: ikta i-k -> -ak),
+                    # NOT after a bare DIPHTHONG (aitvaras àj-t: the engine plays a STANDALONE `t`, not -at --
+                    # engine-Lookup verified). A diphthong's pv is its glide (j/w), which has no `-Vc` coda, so
+                    # without this gate it wrongly fell through to the generic `-ac`.
+                    if c not in SONOR and prev_bare and len(prev) == 1:
                         coda_cands.append("-a" + c)
                 full_coda = _first(coda_cands, units)
                 if full_coda:

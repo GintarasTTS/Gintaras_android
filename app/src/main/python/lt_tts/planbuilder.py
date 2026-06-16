@@ -226,16 +226,12 @@ def _a5_eligible(key, phone, D, prev_phone=None, raw=None):
             if not raw_long:
                 return None
         return "o" if (D is None or D >= _A5_DMIN) else None
-    if is_coda and body == "ou" and pl in ("ou", "o"):
-        # the `ou` u-diphthong (sound/out/loud/foulas/router...): its head IS the long /o:/, so the
-        # engine doubles it +10 epochs exactly like a plain long-o coda -- route-2 capture_prosody:
-        # ALL `ou` loanwords give a5 sum=10, the lone exception being the kloun* family (a SHORT-o stem,
-        # handled in transcribe._SHORT_OU). The plain-o test above misses these because the unit body
-        # ends in the u-offglide ('ou'), not 'o'. Gate on the HEAD vowel's length via `raw` (the 6th
-        # front-end field = the original nucleus-head token, length preserved through the merge): a LONG
-        # head 'oo'/'oO'/'Oo' doubles; a SHORT klounas head 'o'/'O' does not. Works whether mine
-        # tokenizes the nucleus MERGED (phone 'ou') or SPLIT (phone 'o' + a sibling -un offglide). No
-        # D-floor: the engine doubles even the shortest loanword o (=103).
+    if is_coda and pl == "ou" and body and body[-1] == "o":
+        # the o-HEAD body of an `ou` loanword diphthong (sound/about/out/loud...). build_tiling renders
+        # `ou` as a real long-o body `-Co` (this branch) + the `-ou` u-offglide, because the recorded
+        # `-ou` is acoustically a steady `u` (the o is absent) -- so the long-/o:/ doubling must land on
+        # the `-Co` head, not on `-ou`. Gate on the LONG head (raw 'oo'); klounas's SHORT head 'o' stays
+        # single (a short o). The `-ou` offglide (body ends 'u') never matches here -> stays a brief 'u'.
         if raw is not None and raw.replace("'", "").lower() == "oo":
             return "o"
     if is_onset and pl in _A5_AU_ONSET:

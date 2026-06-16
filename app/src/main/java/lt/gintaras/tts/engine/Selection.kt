@@ -370,6 +370,14 @@ internal object Selection {
                             true, true, f0))
                         if (gl != null) emit(TilingElem("dip", gl, null, true, true, f0))
                     }
+                    p == "ou" -> {
+                        // word-initial `ou` (out): o-HEAD long-o body + `-ou` u-offglide (see the C+`ou` branch).
+                        val ohead = initVowel("o", units)
+                        if (ohead != null) emit(TilingElem("body", ohead,
+                            grainTarget(ohead, units, true, dur * K_DUR), true, true, f0))
+                        val off = first(listOf("-ou", "ou"), units)
+                        if (off != null) emit(TilingElem("dip", off, null, true, true, f0))
+                    }
                     p.length == 2 -> {
                         val (on, bod) = diphUnits(p, units)
                         if (on != null) emit(TilingElem("dip", on, null, true, true, f0))
@@ -396,7 +404,11 @@ internal object Selection {
                     // AND eiti/naktis/dantis final), so there is NO last-vowel gate; lo|--/lu|-- are NEVER
                     // used (stalu/galu/metalo/salos play the plain onset+body pair). Still gated on the unit
                     // existing (only ti|-- recorded for i), so brolis li|-- absent -> li- backs off as before.
-                    val combo = if (v.length == 1 && v[0] == 'i') "${c}${v}|--" else null
+                    // Cv|-- combined SOFT-syllable unit: t+i (ti|--) AND a SOFT consonant + u/o (lu|--/lo|--,
+                    // liutas l'u / liokajus l'o); hard stalu/galu/metalo play the plain pair. Engine-verified.
+                    val softC = palatals?.getOrNull(i) ?: false
+                    val combo = if (v.length == 1 && (v[0] == 'i' || ((v[0] == 'u' || v[0] == 'o') && softC))) "${c}${v}|--" else null
+                    val comboUu = combo != null && combo in units && v[0] == 'u'   // only u -> dashed body
                     val diphCombo = if (v.length == 2 && "${c}${v}|" in units) "${c}${v}|" else null
                     val on = when {
                         diphCombo != null -> null
@@ -427,6 +439,14 @@ internal object Selection {
                             }
                         }
                         diphCombo != null -> { chain.add(diphCombo); pbod = diphCombo }
+                        v.length == 2 && v == "ou" -> {
+                            // `ou` loanword diphthong: the recorded `-ou` is acoustically a steady `u`, so give
+                            // the o-HEAD a real long-o body `-Co` (carries the a5 doubling) + the `-ou` offglide.
+                            val ohead = bodyUnit(c, "o", false, units)
+                            if (ohead != null) { chain.add(ohead); pbod = ohead }
+                            val off = first(listOf("-ou", "ou"), units)
+                            if (off != null) { chain.add(off); dipkeys.add(off) }
+                        }
                         v.length == 2 -> {
                             val (dion, dbod) = diphUnits(v, units)
                             if (dion != null) { chain.add(dion); dipkeys.add(dion) }
@@ -437,9 +457,11 @@ internal object Selection {
                             // (word-final ačiū/svečių AND medial siųsti/žiūri); hard stays dashed (sūnų/vyrų).
                             // The old word-final/near-final gate dropped palatalization on a medial long-ū
                             // (siųsti read "sųsti", žiūri "žūri"). Mirrors the short-u rule. Engine-verified.
+                            // After a lu|-- combo (comboUu) the body is the DASHED -lu; i/o keep i|/o| pipe.
                             val softLongU = v == U_OG && palatals != null && palatals[i]
                             val prevSoft = palatals?.getOrNull(i) ?: true
-                            val bod = bodyUnit(c, v, usePipe(phones, i + 1, v, prevSoft) || softLongU, units)
+                            val up = if (comboUu) false else (usePipe(phones, i + 1, v, prevSoft) || softLongU)
+                            val bod = bodyUnit(c, v, up, units)
                             if (bod != null) { chain.add(bod); pbod = bod }
                         }
                     }
@@ -473,8 +495,13 @@ internal object Selection {
                     val pv = prev?.let { if (it.length == 2) it[1].toString() else it } ?: ""
                     val nxtUnburst = nxt != null && nxt.isNotEmpty() && nxt[0] in STOPS && i + 2 < n &&
                             isVowel(phones[i + 2]) && onsetUnit(nxt, phones[i + 2][0], units) == null
-                    val nBefK = nxt != null && c in "nN" && nxt in "kK"
-                    val rBefT = nxt != null && c in "rR" && nxt in "tT"
+                    // n before k: standalone after e (penki), but the -an/-ąn coda after a/ą (bankas/lankas).
+                    val nBefK = nxt != null && c in "nN" && nxt in "kK" && pv != "a" && pv != A_OG
+                    // r before a stop/nasal: standalone after e (any) or i (before t); else the -Vr coda.
+                    val rBefT = if (nxt != null && c in "rR") {
+                        val nxtTkn = nxt in "tTkKnN"; val nxtT = nxt in "tT"
+                        (nxtTkn && pv == "e") || (nxtT && pv != "a" && pv != A_OG && pv != "u")
+                    } else false
                     val nxtSoft = palatals?.getOrNull(i + 1) ?: false
                     val lPipe = c in "lL" && "l|" in units && nxt != null && nxt != "" &&
                             nxt != "_" && !isVowel(nxt) && nxtSoft
@@ -491,7 +518,8 @@ internal object Selection {
                         // i-k = '-ak'). THREE gates, each engine-confirmed: SONORANT codas never back off
                         // (imta/ilka/irgi = bare m/l/r); after a DASHED `-Cv` body the consonant stays
                         // standalone (wjak '-je'+k, mxyzptlk '-sy'+s); after a pipe body likewise.
-                        if (c.isNotEmpty() && c[0] !in SONOR && prevBare) cl.add("-a$c")
+                        // generic -aC only after a bare MONOPHTHONG (ikta -ak), not a bare DIPHTHONG (aitvaras -> t)
+                        if (c.isNotEmpty() && c[0] !in SONOR && prevBare && prev.length == 1) cl.add("-a$c")
                         cl
                     } else emptyList()
                     val fullCoda = first(codaCands, units)
