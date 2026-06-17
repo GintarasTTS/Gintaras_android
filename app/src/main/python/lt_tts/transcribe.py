@@ -175,6 +175,27 @@ def _i_hiatus(word):
     return word
 
 
+def _iou_hiatus(word):
+    """Mid-word foreign "iou" (the English -ious family: previous/serious/various/obvious/curious/anxious):
+    transcr4 treats the i as a bare palatalization mark and DELETES it -> "prevous". Unlike a generic
+    mid-word i+vowel (a REAL native palatalization: brolio->b-r-oo-l'-oo, biuras->b'-uras -- must stay),
+    the letter run "iou" never occurs in a native Lithuanian word (the "ou" diphthong is loanword-only),
+    so keeping the i here cannot mispronounce any native word. Fix mirrors _i_hiatus: DOUBLE the i
+    ("iou"->"iiou"). OOV-only, so the two lexicon words with "iou" (aeiou, slioun) are untouched."""
+    low = word.lower()
+    if "iou" not in low:
+        return word
+    out = []
+    i, n = 0, len(word)
+    while i < n:
+        if low[i:i+3] == "iou":
+            out.append(word[i]); out.append("i")   # keep the i (case-preserved) + the doubled palatalization mark
+            i += 1
+        else:
+            out.append(word[i]); i += 1
+    return "".join(out)
+
+
 def transcribe(word):
     """Full token list with leading/trailing '_'. Two tiers, both transcr4-faithful:
        1) exact lexicon hit -> transcr4's own accented tokens (bit-exact, incl. stress);
@@ -193,6 +214,7 @@ def transcribe(word):
     if w in lex:
         return list(lex[w])                       # bit-exact transcr4 output
     word = _i_hiatus(word)                        # OOV word-initial i+vowel: ios -> ijos (see _i_hiatus)
+    word = _iou_hiatus(word)                       # OOV mid-word "iou": previous/serious keep the i (see _iou_hiatus)
     w = word.lower()
     if w in lex:
         return list(lex[w])                       # the glided form may itself be a lexicon word

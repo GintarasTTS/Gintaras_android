@@ -596,12 +596,12 @@ def _gen_engstr_map(word):
 
 def _s7c_word(word):
     """The word whose strlen the engine's s7c would see. Our i-hiatus reading feeds the engine-equivalent
-    DOUBLED word (ios is rendered as iios, see transcribe._i_hiatus), so the arm midpoint must use the
-    expanded length too -- gated exactly like transcribe (OOV only: a lexicon word never doubles)."""
+    DOUBLED word (ios->iios, mid-word iou->iiou; see transcribe._i_hiatus/_iou_hiatus), so the arm midpoint
+    must use the expanded length too -- gated exactly like transcribe (OOV only: a lexicon word never doubles)."""
     from . import transcribe as LT
-    if len(word) >= 2 and word[0] in "iI" and word.lower() not in LT._load_lex():
-        return LT._i_hiatus(word)
-    return word
+    if word.lower() in LT._load_lex():
+        return word
+    return LT._iou_hiatus(LT._i_hiatus(word))
 
 
 def _gen_armc(word, engstr=None):

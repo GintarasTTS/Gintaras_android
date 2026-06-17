@@ -99,6 +99,26 @@ internal object Transcribe {
             word[0] + "i" + word.substring(1)
         else word
 
+    /** Mid-word foreign "iou" (the English -ious family: previous/serious/various/obvious/curious):
+     *  transcr4 deletes the i (palatalization mark) -> "prevous". No native LT word has the letter run
+     *  "iou" (the "ou" diphthong is loanword-only), so keep the i by DOUBLING it ("iou" -> "iiou").
+     *  OOV-only, like iHiatus. */
+    private fun iouHiatus(word: String): String {
+        val lower = word.lowercase()
+        if (!lower.contains("iou")) return word
+        val sb = StringBuilder(word.length + 2)
+        var i = 0
+        while (i < word.length) {
+            if (i + 2 < word.length && lower[i] == 'i' && lower[i + 1] == 'o' && lower[i + 2] == 'u') {
+                sb.append(word[i]); sb.append('i')   // keep the i (case-preserved) + the doubled palatalization mark
+                i += 1
+            } else {
+                sb.append(word[i]); i += 1
+            }
+        }
+        return sb.toString()
+    }
+
     // kloun* paradigm (the loanword "klounas" = clown, and its declensions): the engine gives the `ou`
     // STEM a SHORT o (k-l-o-w-..., not k-l-oo-w-...), unlike every other `ou` loanword (sound/out/loud/
     // foulas... which are LONG and double their /o:/). Verified token-exact vs transcr4 for the whole
@@ -122,9 +142,8 @@ internal object Transcribe {
      *  word (ios is rendered as iios), so the se8-arm midpoint must use the expanded length too -- gated
      *  exactly like transcribe() (OOV only: a lexicon word never doubles). */
     fun s7cWord(word: String): String =
-        if (word.length >= 2 && word[0] in "iI" && loadLex()[word.lowercase()] == null)
-            iHiatus(word)
-        else word
+        if (loadLex()[word.lowercase()] != null) word   // lexicon word never doubles
+        else iouHiatus(iHiatus(word))                    // mirror transcribe()'s OOV expansion (ios->iios, iou->iiou)
 
     /**
      * Full token list with leading/trailing '_'. Two tiers:
@@ -141,6 +160,7 @@ internal object Transcribe {
         // exact lexicon hit
         loadLex()[wl]?.let { return it }
         w2 = iHiatus(w2)                       // OOV word-initial i+vowel: ios -> iios (see iHiatus)
+        w2 = iouHiatus(w2)                      // OOV mid-word "iou": previous/serious keep the i (see iouHiatus)
         wl = w2.lowercase()
         loadLex()[wl]?.let { return it }       // the doubled form may itself be a lexicon word
         // accent + render (the ported DLL pipeline)
