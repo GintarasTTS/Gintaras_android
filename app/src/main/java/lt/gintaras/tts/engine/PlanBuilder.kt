@@ -135,6 +135,9 @@ internal object PlanBuilder {
         // unburstable stop: insert closure + burst frames (e.g. 'k' in "sveiki", or a WORD-INITIAL
         // 'k' in kitas/ki/kinija -- no 'ki-' onset, so it sits at phones[0] and the scan must start at 0;
         // the closure doubles as the leading silence + the burst = the 1704 samples dropped word-initially).
+        // EVERY unburstable stop is restored, not just the first: skirkite (s-k-i-r-K-i-t-e) has TWO unburstable
+        // k's -- restoring only the first dropped the second 'k' so it read "skir-ite". We re-scan `frames` each
+        // iteration, so a later stop's frames insert AFTER an earlier one's (earlier frames carry pi < ii).
         for (ii in 0 until phones.size - 1) {
             val p = phones[ii]
             if (p.isNotEmpty() && p[0] in STOPS && ii + 1 < phones.size
@@ -154,7 +157,6 @@ internal object PlanBuilder {
                     newFrames.add(SFrame(pcm = pcm, pi = ii, key = "_stop", inStress = ii <= syllEnd))
                 }
                 frames.addAll(ins, newFrames)
-                break
             }
         }
 

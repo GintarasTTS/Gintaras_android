@@ -119,6 +119,10 @@ def select_frames(word):
     # generative stream aligns 1:1 with the captured skeleton (build_plan_phase2 then substitutes their pool
     # pcm at the matching slots). Burst fid is per-stop (measured from the engine M-markers; only 'k' so far).
     _BURST_FID = {"k": 4788}
+    # EVERY unburstable stop in the word gets restored, not just the first: skirkite (s-k-i-r-K-i-t-e) has TWO
+    # unburstable k's (k-i twice) -- restoring only the first dropped the second 'k', so it read "skir-ite".
+    # We re-scan `frames` each iteration, so a later stop's closure+burst is inserted AFTER an earlier one's
+    # (the earlier inserted frames carry the lower phone index < i, so `fr['pi'] >= i` skips past them).
     for i in range(0, len(phones) - 1):
         p = phones[i]
         # the engine inserts the closure+burst whenever the stop's onset is absent and a VOWEL follows (sveiki
@@ -140,7 +144,6 @@ def select_frames(word):
                                 'sil': False, 'pi': i, 'in_stress': i <= syll_end, 'long': False,
                                 'open_syll': False, 'release_pt': False})
             frames[ins:ins] = new
-            break
     # mark the single RELEASE frame = the start sample of the middle character (arm_char), mapped to a frame.
     voiced = [vi for vi, fr in enumerate(frames) if not fr['sil']]
     ph_frames = [vi for vi in voiced if frames[vi]['pi'] == arm_phone]
