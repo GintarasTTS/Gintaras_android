@@ -19,11 +19,6 @@ class GintarasTtsService : TextToSpeechService() {
         private const val SAMPLE_RATE = 22050
         private const val CHUNK_BYTES = 8192
         private const val WARMUP_TIMEOUT_SEC = 30L
-
-        private val PAUSE_MS = mapOf(
-            ',' to 200, ';' to 280, ':' to 280,
-            '.' to 360, '!' to 360, '?' to 360, '—' to 280
-        )
     }
 
     private val warmupLatch = CountDownLatch(1)
@@ -76,16 +71,16 @@ class GintarasTtsService : TextToSpeechService() {
         if (callback.start(SAMPLE_RATE, AudioFormat.ENCODING_PCM_16BIT, 1) == TextToSpeech.ERROR) return
 
         try {
+            // Split into clauses ONLY for first-audio latency (each clause is synthesized + streamed as a
+            // unit so a long utterance starts playing early). The PAUSE between clauses is NOT invented here --
+            // the delimiter is RE-ATTACHED to its clause so the ENGINE emits its own pause (the original
+            // Gintaras pause model in Speak.kt: comma/dash short, . ; : ! ? long). Gintaras makes its own
+            // pauses; the service must not add a second, mismatched one on top.
             for ((clause, delim) in splitClauses(text)) {
-                if (clause.isNotEmpty()) {
-                    val samples = engine.synthPcm(clause, rate = rate, pitch = pitch)
-                    streamBytes(samplesToBytes(samples), callback) ?: run { callback.done(); return }
-                }
-                if (delim.isNotEmpty()) {
-                    val silMs = PAUSE_MS[delim[0]] ?: 120
-                    val sil = ByteArray(SAMPLE_RATE * silMs / 1000 * 2)
-                    streamBytes(sil, callback) ?: run { callback.done(); return }
-                }
+                val piece = clause + delim
+                if (piece.isEmpty()) continue
+                val samples = engine.synthPcm(piece, rate = rate, pitch = pitch)
+                streamBytes(samplesToBytes(samples), callback) ?: run { callback.done(); return }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Synthesis error for: $text", e)

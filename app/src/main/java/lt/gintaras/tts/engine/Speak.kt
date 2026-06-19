@@ -6,19 +6,21 @@ package lt.gintaras.tts.engine
 internal object Speak {
 
     private const val SR = 22050
-    // Engine-measured silences (tts_cli, natural rate, gap between 'labas' and 'rytas'): word gap 660
-    // samples, comma 1318, . ; : ! ? 10579, em dash 11240; NO extra lead/tail beyond the render's own
-    // thr/5-ms tail. Each clause render already ENDS with that 660-sample engine tail, so PAUSE holds only
-    // the REMAINDER (1318-660=658 ~ 0.03s; 10579-660=9919 ~ 0.45s; 11240-660=10580 ~ 0.48s). The old
-    // 0.04/0.22 lead/tail and 0.20-0.36 pauses padded every screen-reader chunk and read audibly slower
-    // than the original SAPI4 voice.
+    // Engine-measured silences (tts_cli, natural rate, gap between 'labas' and 'rytas'): word gap 662
+    // samples, comma 1320, . ; : ! ? 10581, EVERY dash (— – -) 1323 (== comma, NOT a sentence break); NO
+    // extra lead/tail beyond the render's own thr/5-ms tail. Each clause render already ENDS with that
+    // 662-sample engine tail, so PAUSE holds only the REMAINDER (1320-662=658 ~ 0.03s; 10581-662=9919 ~
+    // 0.45s). The old 0.04/0.22 lead/tail and 0.20-0.36 pauses padded every screen-reader chunk and read
+    // audibly slower than the original SAPI4 voice. NOTE (2026-06-19): re-measured the real hlas.dll vs an
+    // earlier mistaken "em dash 11240" -- the engine gives the em dash a COMMA-length pause (1323), not a
+    // sentence break, so '—' is 0.03 (was a wrong 0.48).
     private const val LEAD = 0.0
     private const val TAIL = 0.0
     private const val SPELL_GAP = 0.05
 
     private val PAUSE = mapOf(
         ',' to 0.03, ';' to 0.45, ':' to 0.45,
-        '.' to 0.45, '!' to 0.45, '?' to 0.45, '—' to 0.48
+        '.' to 0.45, '!' to 0.45, '?' to 0.45, '—' to 0.03
     )
 
     private fun sil(sec: Double): IntArray = IntArray((sec * SR).toInt())

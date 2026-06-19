@@ -452,14 +452,14 @@ def build_plan_phrase(text, question=False, rate=None, pitch=None):
     words = [w for w in text.split() if w]
     if len(words) <= 1:
         return build_plan_phase2(text, question=question, rate=rate, pitch=pitch)
-    # VOWEL-VOWEL WORD GAP: a word ending in a vowel followed by a word starting with a vowel ("a alfa",
-    # "o oras") would otherwise join FLUSH -- the boundary declick blends the two vowels into one long vowel
-    # ("a alfa" -> "ąlfa"). The original engine keeps them apart with its `+` word boundary (a short silence
-    # = the per-word trailing tail that this flush-join drops). Re-insert that engine word gap (the rate-
-    # scaled utterance tail, 661 smp at natural rate) ONLY at a vowel|vowel boundary -- a consonant on either
-    # side already separates the words, so every consonant-boundary phrase stays byte-identical (the gap
-    # frame carries 'silence': True so backend.synthesize starts a fresh ring block after it = no declick
-    # bleed across the gap).
+    # ENGINE WORD GAP (every boundary): the original hlas.dll inserts its `+` word boundary -- a short silence
+    # = the per-word trailing tail (~662 smp at natural rate) -- between EVERY pair of words, not just vowel|
+    # vowel. Re-measured on the real engine (2026-06-19): "labas rytas" (s|r, consonant|consonant) shows a 662-
+    # sample gap, identical to a vowel|vowel boundary. Earlier this gap was gated to vowel|vowel only (to keep
+    # consonant-boundary phrases byte-identical AND to stop "a alfa" -> "ąlfa" vowel-merging); the user asked to
+    # restore the engine's real behavior, so it now fires at every boundary. The gap frame carries 'silence':
+    # True so backend.synthesize starts a fresh ring block after it = no declick bleed across the gap (the same
+    # mechanism that already made the vowel|vowel case safe).
     def _edges(w):                                    # (starts_with_vowel, ends_with_vowel) from the front-end
         ph = [t[0] for t in G.front(w) if t[0] != "_"]
         return (G.is_vowel(ph[0]), G.is_vowel(ph[-1])) if ph else (False, False)
@@ -482,8 +482,8 @@ def build_plan_phrase(text, question=False, rate=None, pitch=None):
                 fr['se8_base'] = _se8_word_base(wi)    # the engine's phrase declination
             allframes.append(fr)
         word_spans.append((start, len(allframes), w, wp))
-        # engine word gap at a vowel|vowel boundary so the two vowels don't merge (NOT part of any word span)
-        if not last and gap_len > 0 and edges[wi][1] and edges[wi + 1][0]:
+        # engine word gap at EVERY word boundary (NOT part of any word span); edges[] retained for clarity
+        if not last and gap_len > 0:
             allframes.append({'pcm': [0] * gap_len, 's90': 0, 's94': GAP_S94, 'pause': True,
                               'silence': True, 'reseed': False, 'a5': 0, 'pi': None, 'key': '_wgap'})
     plan = GS.Plan(allframes, alltail)

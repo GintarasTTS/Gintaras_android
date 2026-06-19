@@ -454,13 +454,13 @@ internal object PlanBuilder {
         val words = text.split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.size <= 1) return buildPlanPhase2(text, question = question, rate = rate, pitch = pitch)
 
-        // VOWEL-VOWEL WORD GAP: a word ending in a vowel followed by a word starting with a vowel ("a alfa",
-        // "o oras") would otherwise join FLUSH -- the boundary declick blends the two vowels into one long
-        // vowel ("a alfa" -> "ąlfa"). The original engine keeps them apart with its `+` word boundary (a short
-        // silence = the per-word trailing tail this flush-join drops). Re-insert that engine word gap (the
-        // rate-scaled utterance tail, 661 smp natural) ONLY at a vowel|vowel boundary -- a consonant on either
-        // side already separates the words, so every consonant-boundary phrase stays byte-identical. The gap
-        // carries silence=true so Backend starts a fresh ring block after it (no declick bleed across the gap).
+        // ENGINE WORD GAP (every boundary): the original hlas.dll inserts its `+` word boundary -- a short
+        // silence = the per-word trailing tail (~662 smp natural) -- between EVERY pair of words, not just
+        // vowel|vowel. Re-measured on the engine (2026-06-19): "labas rytas" (s|r, consonant|consonant) shows a
+        // 662-sample gap, identical to a vowel|vowel boundary. Earlier gated to vowel|vowel only (byte-identical
+        // consonant phrases + stop "a alfa" -> "ąlfa" merging); the user asked to restore the engine's real
+        // behavior, so it now fires at every boundary. The gap carries silence=true so Backend starts a fresh
+        // ring block after it (no declick bleed across the gap -- the mechanism that made vowel|vowel safe).
         fun edges(w: String): Pair<Boolean, Boolean> {
             val ph = Selection.frontendFree(w).map { it.phone }.filter { it != "_" }
             return if (ph.isEmpty()) Pair(false, false)
@@ -486,8 +486,8 @@ internal object PlanBuilder {
                 allFrames.add(f)
             }
             wordSpans.add(WordSpan(start, allFrames.size, w, wp))
-            // engine word gap at a vowel|vowel boundary so the two vowels don't merge (NOT part of any span)
-            if (!last && gapLen > 0 && edges[wi].second && edges[wi + 1].first) {
+            // engine word gap at EVERY word boundary (NOT part of any span); edges kept for clarity
+            if (!last && gapLen > 0) {
                 allFrames.add(Backend.Frame(pcm = IntArray(gapLen), s90 = 0, s94 = gapS94, pause = true,
                     reseed = false, a5 = 0, silence = true, pi = null, key = "_wgap"))
             }
