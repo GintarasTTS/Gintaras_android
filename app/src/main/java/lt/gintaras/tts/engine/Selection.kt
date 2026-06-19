@@ -448,9 +448,20 @@ internal object Selection {
                             if (off != null) { chain.add(off); dipkeys.add(off) }
                         }
                         v.length == 2 -> {
-                            val (dion, dbod) = diphUnits(v, units)
-                            if (dion != null) { chain.add(dion); dipkeys.add(dion) }
-                            if (dbod != null) { chain.add(dbod); pbod = dbod }
+                            // A SOFT (palatalized) consonant + uo takes the `uo|` PIPE body alone (NO native
+                            // uo- onset, NO -uo dashed) -- palatalization carried by the pipe, like u|/ū|.
+                            // Engine Lookup-verified: diuoti/važiuoti/kiuoti/liuoti -> Cu- + uo|; a HARD C +
+                            // uo (duona/tuo) keeps Cu- + uo- + -uo. Without this the soft consonant was read
+                            // HARD ("važiuoti" -> "važuoti"). Gated on the pipe existing (only `uo|`; `ie|`
+                            // absent -> soft+ie stays the onset+ie-+-ie dashed pair: siela/ties).
+                            val softPipe = if (palatals != null && palatals[i] && "$v|" in units) "$v|" else null
+                            if (softPipe != null) {
+                                chain.add(softPipe); pbod = softPipe
+                            } else {
+                                val (dion, dbod) = diphUnits(v, units)
+                                if (dion != null) { chain.add(dion); dipkeys.add(dion) }
+                                if (dbod != null) { chain.add(dbod); pbod = dbod }
+                            }
                         }
                         else -> {
                             // A LONG-ū/ų after a SOFT consonant takes the pipe body `ū|` in ANY position

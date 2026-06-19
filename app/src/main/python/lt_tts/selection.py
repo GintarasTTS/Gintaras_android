@@ -586,10 +586,23 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                     off = _first(["-ou", "ou"], units)             # the u-offglide, played native
                     if off: chain.append(off); dipkeys.add(off)
                 elif len(v) == 2:
-                    # RISING diphthong (uo/ie) or long-ą+u (saule): recorded onset+body pair.
-                    dion, dbod = diph_units(v, units)
-                    if dion: chain.append(dion); dipkeys.add(dion)
-                    if dbod: chain.append(dbod); pbod = dbod
+                    # A SOFT (palatalized) consonant + uo takes the `uo|` PIPE body alone (NO native uo-
+                    # onset, NO -uo dashed body) -- the palatalization is carried by the pipe, exactly
+                    # like the short-u (_use_pipe -> u|) and long-ū (ū|) rules. Engine Lookup-verified:
+                    # diuoti/važiuoti/kiuoti/liuoti (d'/ž'/k'/l' + uo) -> Cu- + uo|; a HARD C + uo
+                    # (duona/tuo/nuoma d-uo) keeps Cu- + uo- + -uo. Without this the soft consonant was
+                    # rendered HARD ("važiuoti" -> "važuoti"). Gated on the pipe existing -- only `uo|`
+                    # was recorded (`ie|` is absent), so a soft consonant + ie stays the onset+ie-+-ie
+                    # dashed pair (siela/ties si-/ti- + ie- + -ie, engine-verified, soft or hard).
+                    soft_pipe = (v + "|") if (palatals is not None and palatals[i]
+                                             and (v + "|") in units) else None
+                    if soft_pipe:
+                        chain.append(soft_pipe); pbod = soft_pipe
+                    else:
+                        # RISING diphthong (uo/ie) or long-ą+u (saule): recorded onset+body pair.
+                        dion, dbod = diph_units(v, units)
+                        if dion: chain.append(dion); dipkeys.add(dion)
+                        if dbod: chain.append(dbod); pbod = dbod
                 else:
                     # A LONG-ū/ų (0xf8) after a SOFT (palatalized) consonant takes the pipe body `ū|` in ANY
                     # position (ačiū/svečių/brolių word-final, siųsti/žiūri MEDIAL -> ū|); after a HARD consonant
