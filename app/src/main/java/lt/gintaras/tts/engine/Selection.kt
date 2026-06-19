@@ -39,7 +39,7 @@ internal object Selection {
     private val FIXED_DIPH = mapOf(Pair("a","j") to "aj", Pair("e","j") to "ei", Pair("a","w") to "au")
 
     // Phoneme keys that use double-dashed body
-    private val CDBL_BODY = setOf("x", "dž")   // /x/ (ch) AND dž bodies are "--cho"/"--džo" not "-cho"/"-džo":
+    private val CDBL_BODY = setOf("x", "dž", "dz")   // /x/ (ch), dž, dz bodies are "--cho"/"--džo"/"--dze":
                                                // dž bodies were recorded ONLY double-dashed, so a single dash
                                                // fell through to the palatal "o|" pipe and added an i-glide
                                                // (Džordana -> "Džiordana"). Engine-verified.
@@ -476,7 +476,10 @@ internal object Selection {
                             if (bod != null) { chain.add(bod); pbod = bod }
                         }
                     }
-                    prevPipe = pbod != null && pbod.endsWith("|")
+                    // A Cv|-- combo (comboUu) leaves a DASHED -lu body, but the combo already closed the
+                    // soft syllable, so a following coda is STANDALONE like after a pipe (brolius/kelius
+                    // /arklius -> ...lu|-- -lu + bare `s`, NOT -os). Engine-Lookup verified.
+                    prevPipe = (pbod != null && pbod.endsWith("|")) || comboUu
                     prevBare = false   // dashed/pipe body -> following coda stays standalone
                     val ic = dur; val iv = vdur
                     val natDips = chain.sumOf { k ->

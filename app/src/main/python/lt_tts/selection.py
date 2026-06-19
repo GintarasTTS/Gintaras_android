@@ -323,7 +323,7 @@ def _first(cands, units): return next((c for c in cands if c in units), None)
 # (`--cho`, not `-cho`). Without this map build_tiling looks for a nonexistent `xo-` and DROPS the x (choras
 # -> "oras"). Verified vs the engine Lookup (choras -> cho-/--cho, chaosas -> cha-/--cha).
 _CSPELL = {"x": "ch"}                              # /x/ -> "ch"
-_CDBLBODY = {"x", "dž"}                             # /x/=ch AND dž take a DOUBLE-dashed body (`--cho`, `--džo`):
+_CDBLBODY = {"x", "dž", "dz"}                       # /x/=ch, dž AND dz take a DOUBLE-dashed body (`--cho`, `--džo`):
                                                    # the voice recorded dž bodies ONLY double-dashed (no `-džo`),
                                                    # so a single dash dropped to the palatal `o|` pipe and added
                                                    # an i-glide -- Džordana -> "Džiordana". Verified vs the engine
@@ -618,7 +618,10 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                     use_pipe = False if combo_uu else (_use_pipe(phones, i + 1, v, prev_soft) or soft_longU)
                     bod = body_unit(c, v, use_pipe, units)
                     if bod: chain.append(bod); pbod = bod
-                prev_pipe = bool(pbod and pbod.endswith("|"))
+                # A `Cv|--` combo (combo_uu) leaves the body as the DASHED -lu, but the COMBO already
+                # closed the soft syllable, so a following coda is STANDALONE just like after a pipe
+                # (engine-Lookup verified: brolius/kelius/arklius -> ...lu|-- -lu + bare `s`, NOT -os).
+                prev_pipe = bool((pbod and pbod.endswith("|")) or combo_uu)
                 prev_bare = False                  # dashed/pipe body -> following coda stays standalone
                 # PER-PHONEME DURATION (matches the engine, measured vs tts_cli ground truth): every
                 # phoneme is rendered to its OWN ilgiai*K duration (K_DUR uniform -- ilgiai already encodes
