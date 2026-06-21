@@ -636,7 +636,7 @@ def _gen_arm_rpos(word, frames, frame_rpos):
     gintaras 'ta-'=pi3=charpos4, tauta 'au'=pi1=charpos1, duona 'uo' spans charpos1/2 -> split)."""
     engstr, pos2phone = _gen_engstr_map(word)
     armc = _gen_armc(word, engstr)
-    if armc >= len(pos2phone):
+    if armc < 0 or armc >= len(pos2phone):  # armc<0: phone-less word (emoji/symbol) -> no arm
         return None
     ap = pos2phone[armc]
     if ap is None or ap < 0:

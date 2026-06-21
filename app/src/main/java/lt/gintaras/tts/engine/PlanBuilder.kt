@@ -323,7 +323,7 @@ internal object PlanBuilder {
     private fun genArmRpos(word: String, frames: List<Backend.Frame>, frameRpos: List<Int>): Int? {
         val (engstr, pos2phone) = genEngstrMap(word)
         val armc = genArmc(word, engstr)
-        if (armc >= pos2phone.size) return null
+        if (armc < 0 || armc >= pos2phone.size) return null  // armc<0: phone-less word (emoji/symbol) -> no arm
         val ap = pos2phone[armc]; if (ap < 0) return null
         val vpos = engstr.indices.filter { pos2phone[it] == ap && engstr[it] != 0x7c.toByte() }
         val elemIdx = vpos.indexOf(armc).let { if (it < 0) 0 else it }

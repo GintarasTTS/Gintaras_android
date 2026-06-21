@@ -7,7 +7,8 @@ correct only if the Kotlin PCM output is **byte-identical** to the Python output
 
 - `cases.tsv` — the test cases: `text <TAB> rate(int|-) <TAB> pitch(int|-)` (covers lexicon +
   OOV + nonsense words, diacritics, digits/leading zeros, spell-mode letters, phrases, the `?`
-  question contour, and rate/pitch slider values).
+  question contour, rate/pitch slider values, and emoji / non-cp1257 (CJK) symbols that transcribe
+  to a phone-less token — the `_gen_arm_rpos` armc<0 guard must yield a tail-only plan, not crash).
 - `gen_golden.py` — renders every case through the Python reference engine → `golden.tsv`
   (`md5-of-int16le-pcm sample-count` per case).
 - `JvmAssets.kt` — desktop-JVM stand-in for the Android `Assets` object (reads
