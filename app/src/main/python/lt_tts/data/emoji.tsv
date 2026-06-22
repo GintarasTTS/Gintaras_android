@@ -107,24 +107,13 @@
 ∎	galutinis įrodymas
 ∏	n-arė sandauga
 ∑	n-aris sumavimas
-+	pliuso ženklas
 ±	pliusas ir minusas
-÷	dalybos simbolis
-×	daugybos simbolis
-<	mažiau už
 ≮	ne mažiau nei
-=	lygu
 ≠	nelygu
->	daugiau už
 ≯	ne daugiau nei
 ¬	nesutikimas
-|	vertikali linija
-~	riestinis ženklas
-−	minuso ženklas
 ⁻	minusas viršutiniame indekse
-∓	minusas arba pliusas
-∕	dalybos ženklas
-⁄	trupmenos ženklas
+∓	minus arba plius
 ∗	žvaigždutės operatorius
 ∘	žiedo operatorius
 ∙	ženklelio operatorius
@@ -135,7 +124,6 @@
 ∠	kampas
 ∣	dalija
 ∥	lygiagretus
-∧	loginis ir
 ∩	sankirta
 ∪	sąjunga
 ∫	integralas
