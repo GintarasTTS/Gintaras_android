@@ -211,7 +211,8 @@ def _a5_unit_pads():
     return _A5_PADS, _A5_BIT6
 
 
-def _a5_eligible(key, phone, D, prev_phone=None, raw=None):
+
+def _a5_eligible(key, phone, D, prev_phone=None, raw=None, oo_suppress=False):
     """Doubling class of a NON-bit6 unit: 'o' = long /o:/ (the DF90 10-extra distribute, _a5_long_distribute),
     'au' = the ąu-/ąj- diphthong onset (the simpler [0,1*(n-1)] fill), or None (no doubling)."""
     body = key.lstrip("-").rstrip("-").replace("|", "")
@@ -219,16 +220,30 @@ def _a5_eligible(key, phone, D, prev_phone=None, raw=None):
     is_onset = key.endswith("-")
     pl = phone.replace("'", "")
     if is_coda and body and body[-1] in _A5_LONG_MONO and len(pl) == 1 and pl in _A5_LONG_MONO:
-        # a HIATUS o (a vowel immediately before it) doubles only when the RAW transcr token is the LONG
-        # doubled 'oo'/'Oo'/'oO' (ios i-oo-s: engine a5=[0,1x10], capture_prosody-verified); the SHORT
-        # stressed 'O' (chaosas a-O) does NOT double. norm() collapses both to 'o', so the raw token (6th
-        # front-end field) carries the distinction. No preceding vowel (word-initial oras, or after a
-        # consonant lova/žodis/milijonas) doubles as before (chaosas o = [0x11], oras o = [0,1x10]).
-        if prev_phone is not None and G.is_vowel(prev_phone):
-            raw_long = raw is not None and raw.replace("'", "").lower() == "oo"
-            if not raw_long:
-                return None
-        return "o" if (D is None or D >= _A5_DMIN) else None
+        # The long-/o:/ doubling is gated on the lt_ilgiai LENGTH CODE (the raw transcr token), NOT the old
+        # `D >= 108` DURATION proxy. The code is the engine's own long/short mark and is exact; D>=108 MISSED
+        # the slightly-shorter long o's -- sportas/tortas/forma (`Oo`, dur 107) and korta (`oo`, dur 103) all
+        # DOUBLE in the engine but D<108 dropped them (sportas 22%). 2-letter code (oo/oO/Oo) = LONG -> double;
+        # 1-letter (o/O) = SHORT -> no double. (Engine a5-confirmed 25/25, 2026-06-20.)
+        rl = raw.replace("'", "").lower() if raw else ""
+        if raw is None:
+            return "o" if (D is None or D >= _A5_DMIN) else None   # legacy fallback (caller gave no raw token)
+        if len(rl) != 2:
+            return None                                            # SHORT o ('o'/'O') -> never doubles
+        # a HIATUS o (a vowel immediately before it) doubles only for the lowercase doubled 'oo' (ios i-oo-s
+        # = [0,1x10]); the stressed 'O'/'Oo' after a vowel (chaosas a-O) does NOT double.
+        if prev_phone is not None and G.is_vowel(prev_phone) and rl != "oo":
+            return None
+        # DF90 BUDGET SUPPRESSION: an UNSTRESSED-long 'oo' (lowercase, no capital) is dropped when the word has
+        # >=4 syllables AND this 'oo' is strictly BEFORE the stressed syllable -- sub_1000DF90 threads its
+        # duration budget by the recursive node POSITION, which reduces to this stress-relative rule (engine
+        # a5-confirmed 29/30, computed by gen_a5_list and passed as oo_suppress). This correctly catches the
+        # long pre-stress loanwords (automobilis/restoranas/dokumentas/kolonada NO double) while keeping the
+        # at/after-stress and short-word 'oo' (komanda/koridorius/monotonas/horizontas double). The STRESSED-
+        # long oO/Oo is never suppressed. (futbolas is the lone miss -- its 'o' is a front-end length error.)
+        if "O" not in raw and oo_suppress:
+            return None
+        return "o"
     if is_coda and pl == "ou" and body and body[-1] == "o":
         # the o-HEAD body of an `ou` loanword diphthong (sound/about/out/loud...). build_tiling renders
         # `ou` as a real long-o body `-Co` (this branch) + the `-ou` u-offglide, because the recorded
@@ -276,6 +291,16 @@ def gen_a5_list(word, gen=None):
     phones = [t[0] for t in full]
     durs = [t[1] for t in full]                       # G.front's own per-phone ilgiai duration (diphthong-merged)
     raws = [t[5] for t in full]                       # raw transcr token ('oo' vs 'O' for the hiatus-o gate)
+    # DF90 oo-doubling suppression: an unstressed-long 'oo' in a >=4-syllable word, strictly BEFORE the stressed
+    # syllable, is not doubled (the engine's recursive budget runs out for pre-stress vowels in long words).
+    _vidx = [k for k, p in enumerate(phones) if G.is_vowel(p)]
+    _stress_vi = next((vi for vi, k in enumerate(_vidx) if full[k][3]), None)
+    _nsyl = len(_vidx)
+
+    def _oo_suppress(pi):
+        if pi is None or _stress_vi is None or _nsyl < 4 or pi not in _vidx:
+            return False
+        return _vidx.index(pi) < _stress_vi
     out, i = [], 0
     while i < len(fr):
         key = fr[i]['key']; pi = fr[i]['pi']
@@ -293,7 +318,7 @@ def gen_a5_list(word, gen=None):
         else:
             prev_phone = phones[pi - 1] if (pi is not None and pi >= 1) else None
             raw = raws[pi] if pi is not None and pi < len(raws) else None
-            cls = _a5_eligible(key, phone, D, prev_phone, raw) if n <= 14 else None
+            cls = _a5_eligible(key, phone, D, prev_phone, raw, _oo_suppress(pi)) if n <= 14 else None
             if cls == "o":
                 # long /o:/: _A5_LONGV_EXTRA(=10) extra epochs, a5[0]=0, rest over grains 1..n-1 by CENTERED
                 # rounding (the DF90 fraction). n=11 'o' coda -> [0,1x10] (== old, no passing word changes);
@@ -422,6 +447,25 @@ def build_plan_phase2(word, final=True, question=False, rate=None, pitch=None):
     # fast THR compresses the output -- a natural-schedule arm lands past (or far off) the fast output, so the
     # se8 fall misfired/never fired at fast rates (the engine recomputes its contour on the actual epoch
     # schedule). rate=None keeps the natural pass = the bit-exact path, byte-identical.
+    # It must ALSO be genuinely NO-ARM: Plan.__init__ sets se8_ramp=True from the per-frame 'release' flags, so
+    # without this the pass arms at the COARSE frame-release flag, and that frame-arm shifts every post-arm
+    # frame's cumulative output -> _gen_arm_rpos reads a contaminated frame_rpos and lands the real arm EARLY on
+    # long words (automobilis: 12873 vs the correct 13038, a 26-sample miss = 48%). Force se8_ramp=False so the
+    # frame_rpos pass holds the flat -20 declination (the true pre-arm cumulative). (2026-06-20.)
+    # The clean no-arm pass (se8_ramp=False) is correct when the arm lands on a VOICED frame (automobilis/
+    # komanda/kosmosas/ekonomika: the contaminated frame-arm shifted their post-arm cumulative -> early arm).
+    # But when the arm lands on a PAUSE/closure frame (politika: the soft-stop `ti|--` combo), the arm belongs
+    # INSIDE the closure and the +100 contour lag off the previous voiced frame undershoots it -- there the
+    # contaminated (frame-release) pass happens to place it correctly. So gate the clean pass on a NON-pause
+    # arm frame. (Determinable before the pass: armc->phone->frame needs no frame_rpos. 2026-06-20.)
+    _es, _p2p = _gen_engstr_map(word)
+    _armc = _gen_armc(word, _es)
+    _ap = _p2p[_armc] if 0 <= _armc < len(_p2p) else None  # _armc<0: phone-less word (emoji/symbol) -> no arm
+    _arm_frame = (next((i for i, f in enumerate(frames) if f.get('pi') is not None and f['pi'] >= _ap), None)
+                  if _ap is not None and _ap >= 0 else None)
+    _arm_is_pause = _arm_frame is not None and frames[_arm_frame].get('pause')
+    if not _arm_is_pause:
+        plan.se8_ramp = False
     GS.synthesize(plan, rate=rate, pitch=pitch, _frame_rpos=fr_rpos)   # no release_rpos yet => no-arm pass
     rr = _gen_arm_rpos(word, frames, fr_rpos)        # fully generative arm (no capture)
     if rr is not None:
@@ -617,12 +661,43 @@ def _gen_armc(word, engstr=None):
     n = len(engstr)
     pipes = {k for k, c in enumerate(engstr) if c == 0x7c}
     dskip = {k for k in range(1, n) if engstr[k - 1] == 0x61 and engstr[k] in _DIPH_GLIDES}
-    skip = pipes | dskip
-    seg = len(_s7c_word(word)) // 2
+    # PIPED RISING-diphthong 2nd element: a soft `uo|`/`ie|` is ONE unit, so the engine's per-char loop
+    # processes only the 1st element and SKIPS the 2nd (the `o`/`e`) AND the `|` -- e.g. važiuoti `važuo|ti|`
+    # arms the se8 fall at the `t`(charpos 6), not the `o`(4). A HARD (non-piped) `uo` (duona `duona`) is
+    # rendered as two demisyllables, so its 2nd element IS visited/eligible -> NOT skipped. So gate the skip on
+    # a pipe IMMEDIATELY following: skip k iff (engstr[k-1],engstr[k]) is `uo`/`ie` and engstr[k+1] == `|`.
+    # (Engine _arm.txt-verified 2026-06-20: duona arms charpos 2, važiuoti charpos 6.)
+    # LENGTH GATE (2026-06-21): the skip only applies in words LONG ENOUGH (s7c>5) that the contour-segment
+    # boundary (floor(s7c/2)) lands PAST the piped diphthong. In SHORT words (s7c<=5: diena/siena/viena/pieno
+    # `die|na`) the boundary lands ON the diphthong 2nd element, so the engine arms the se8 fall INSIDE the `ie`
+    # body (se0~6322, mid-body) -> the word stays flat (s94 starts 68, never goes negative). Skipping past it to
+    # the trailing `n` armed too LATE -> a spurious pitch dip (~54%). So DON'T skip for s7c<=5. (vienas s7c=6
+    # keeps the skip and stays bit-exact; važiuoti s7c=8 unchanged. Engine se8-ramp-position verified.)
+    _s7c_len = len(_s7c_word(word))
+    rdskip = ({k for k in range(1, n - 1)
+               if (engstr[k - 1], engstr[k]) in ((0x75, 0x6f), (0x69, 0x65)) and engstr[k + 1] == 0x7c}
+              if _s7c_len > 5 else set())
+    skip = pipes | dskip | rdskip
+    seg = _s7c_len // 2
     for k in range(n):
         if k not in skip and k >= seg:
             return k
     return n - 1
+
+
+_PRIE_EARLY = None
+
+
+def _prie_early():
+    """Lazy-load the verified PRIE_EARLY set (prie- words whose se8 fall arms at the syllable-1 ie offglide)."""
+    global _PRIE_EARLY
+    if _PRIE_EARLY is None:
+        try:
+            from . import prie_early_data
+            _PRIE_EARLY = set(prie_early_data.PRIE_EARLY)
+        except Exception:
+            _PRIE_EARLY = set()
+    return _PRIE_EARLY
 
 
 def _gen_arm_rpos(word, frames, frame_rpos):
@@ -641,6 +716,46 @@ def _gen_arm_rpos(word, frames, frame_rpos):
     ap = pos2phone[armc]
     if ap is None or ap < 0:
         return None
+    # FALLING-`ei`-DIPHTHONG OFFGLIDE arm (veidas/seimas/reidas/peilis = C+ei+C+ending): the engine arms the
+    # se8 fall at the nucleus->offglide boundary (the `-ei`/`-ej` start), but pos2phone places armc on the
+    # consonant AFTER the diphthong, so the default arm_frame skips PAST the offglide to the next syllable onset
+    # (arming ~2000-3000 samples too late -> veidas/seimas/reidas/peilis ~40-52%). DETECT in FRAME space (the
+    # engstr is state-dependent): the frame just before arm_frame is the `-ei`/`-ej` offglide coda, the arm_frame
+    # is the NEXT syllable's ONSET (key ends in '-'), and the ei is NOT word-initial (its nucleus phone has an
+    # onset frame). Then arm at the START of the `-ei`/`-ej` offglide run. GATED tight: `-ai`/`-au` offglides
+    # (laisvė/laukas) and word-initial ei (eiti) are EXCLUDED -> they keep the later arm (all verified 100%).
+    _af = next((i for i, fr in enumerate(frames)
+                if fr.get('pi') is not None and fr['pi'] >= ap), None)
+    if _af and _af > 1 and frames[_af - 1].get('key') in ("-ej", "-ei"):
+        # the word must START with a consonant ONSET (first keyed frame ends in '-') so the ei is NOT
+        # word-initial -- eiti `ei-ti` (bare-vowel start) keeps the later arm. `-ai`/`-au` offglides
+        # (laisvė/laukas) never reach here (their key != -ej/-ei). Both onset (veidas `da-`) AND cluster-coda
+        # (leisti `s`) arm_frames are handled -- the offglide-start anchor is the same. ONLY 2-SYLLABLE words:
+        # in a C+ei+C(+ending) disyllable the contour midpoint IS the ei syllable, so the fall arms at its
+        # offglide START. In 3+-syllable words (peizažas/teisingas/seiliotis) the arm belongs to a LATER syllable
+        # -- the default (offglide END / next-onset) arm is correct there. (Engine-verified: 2-syl og_arm=100%,
+        # 3-syl def_arm=100%, both ways across ~15 words.)
+        _f0 = next((fr.get('key', "") for fr in frames if fr.get('pi') is not None), "")
+        _nsyl = sum(1 for t in G.front(word) if t[0] != "_" and G.is_vowel(t[0]))
+        if (_f0 or "").endswith("-") and _nsyl == 2:
+            _s = _af - 1
+            while _s > 0 and frames[_s - 1].get('key') == frames[_af - 1].get('key'):
+                _s -= 1
+            if _s > 0:
+                return frame_rpos[_s - 1] + 100
+    # PRIE-PREFIX rising-`ie` EARLY arm (priežiūra/priežodis/priekaba/priemonė...): a `prie-`-prefixed word whose
+    # PREFIX is stressed arms the se8 fall at the syllable-1 `-ie`/`-uo` offglide START (not the later default).
+    # This is LEXICAL -- lt_accent marks the prefix `ie` stressed for ALL prie- words, but only SOME are
+    # prefix-stressed; priemiestis/prievaizdas/priežastis are STEM-stressed (default arm correct). So membership
+    # is a VERIFIED-BY-CONSTRUCTION word list (prie_early_data.PRIE_EARLY: a word is listed ONLY if the offglide
+    # arm reproduces the engine WAV bit-exactly, so applying it can NEVER degrade -- words not listed are
+    # untouched). Same model as SHORT_O. (2026-06-21.)
+    if word.lower() in _prie_early() and _af and _af > 1 and frames[_af - 1].get('key') in ("-ie", "-uo"):
+        _s = _af - 1
+        while _s > 0 and frames[_s - 1].get('key') == frames[_af - 1].get('key'):
+            _s -= 1
+        if _s > 0:
+            return frame_rpos[_s - 1] + 100
     vpos = [k for k in range(len(engstr)) if pos2phone[k] == ap and engstr[k] != 0x7c]
     elem_idx = vpos.index(armc) if armc in vpos else 0
     # plan-frame indices belonging to the arm phone, in order (a frame's pi is None for silence/closure)

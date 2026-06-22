@@ -44,8 +44,12 @@ def _is_letter_token(word):
         return False
 
 
-def synth_text(text, rate=None, pitch=None, capital_pitch=True,
-               read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None):
+def synth_text_stream(text, rate=None, pitch=None, capital_pitch=True,
+                      read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None):
+    """Streaming core: yields the SAME audio as synth_text, but one clause/pause chunk at a time, AS SOON AS
+    each is synthesized -- so a caller can start playing after the FIRST clause instead of after the whole
+    text (the long-text first-audio lag). Concatenating every yielded chunk is byte-identical to synth_text's
+    return value; only WHEN bytes become available changes. Yields plain int16-sample lists."""
     text = SY.expand(text, read_emoji=read_emoji, read_cyrillic=read_cyrillic,
                      read_latvian=read_latvian,         # emoji / Cyrillic / Latvian -> spoken Lithuanian
                      read_punctuation=read_punctuation)  # punctuation: SKIPPED by default (the screen
@@ -55,7 +59,8 @@ def synth_text(text, rate=None, pitch=None, capital_pitch=True,
     # LEAD/TAIL/clause pauses must follow -- a fast rate with fixed 0.2-0.36s pauses is what made fast NVDA
     # reading feel slower than the original SAPI4 voice. rate=None -> 1.0 (natural, unchanged).
     pf = 1.0 if rate is None else GS.rate_thr(rate) / 150.0
-    out = list(_sil(LEAD * pf))
+    if LEAD:
+        yield list(_sil(LEAD * pf))
     # split into (clause, following-delimiter) pairs so a clause ending in '?' gets the QUESTION RISE contour
     parts = re.split(r"([.,;:!?—])", text)
     for k in range(0, len(parts), 2):
@@ -63,6 +68,7 @@ def synth_text(text, rate=None, pitch=None, capital_pitch=True,
         delim = parts[k + 1] if k + 1 < len(parts) else ""
         if clause:
             toks = clause.split()
+            out = []
             # SPELL MODE: every token is a spelled letter/abbreviation (typing letter-by-letter). Render each
             # DISCRETELY (a small gap between letters). Case is NOT pitch-distinguished: the screen reader has
             # its own capital-letter setting, so the engine renders a capital at the SAME pitch as lowercase
@@ -97,7 +103,20 @@ def synth_text(text, rate=None, pitch=None, capital_pitch=True,
                             out += _sil(0.02 * pf)
                         except Exception:
                             pass
+            yield out                                            # clause body, as soon as it is ready
         if delim:
-            out += _sil(PAUSE.get(delim, 0.12) * pf)
-    out += _sil(TAIL * pf)
+            yield _sil(PAUSE.get(delim, 0.12) * pf)              # inter-clause pause
+    if TAIL:
+        yield list(_sil(TAIL * pf))
+
+
+def synth_text(text, rate=None, pitch=None, capital_pitch=True,
+               read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None):
+    """Whole-text synth: the concatenation of synth_text_stream's chunks (byte-identical to the prior
+    accumulating implementation)."""
+    out = []
+    for chunk in synth_text_stream(text, rate=rate, pitch=pitch, capital_pitch=capital_pitch,
+                                   read_emoji=read_emoji, read_cyrillic=read_cyrillic,
+                                   read_latvian=read_latvian, read_punctuation=read_punctuation):
+        out += chunk
     return out

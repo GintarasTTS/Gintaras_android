@@ -262,15 +262,19 @@ internal object Selection {
     // -> u|j) vs the dashed `-uj` after a hard one (puikus p-uj). `u|j` is the ONLY recorded pipe-glide, so
     // every other offglide (aj/ej/oj) falls through. Mirrors the u|/ū| palatalization rule.
     fun glideUnit(v1: String, g: String, stressed: Boolean, units: Map<String, List<Int>>,
-                  prevSoft: Boolean = false): String? {
+                  prevSoft: Boolean = false, onset: String? = null): String? {
         val base = (LONG2SHORT[v1[0]] ?: v1[0]).toString()
         val cands: List<String> = if (g in listOf("u","w",U_OG)) {
             if (stressed) listOf("$base$U_OG","-$base$U_OG","${base}u","-${base}u")
             else listOf("${base}u","-${base}u","$base$U_OG","-$base$U_OG")
         } else {
-            val base0 = if (v1 == A_OG)
-                listOf("-${v1}j","${v1}j","${base}j","-${base}j")
-            else
+            val base0 = if (v1 == A_OG) {
+                // an `l` ONSET + stressed-long `ą`(A_OG) + i-glide takes the recorded `-ai` coda (laisvė/
+                // laiškas/laimė -> `là- -là -ai`); every other onset keeps the `-àj` split, and l+plain-a is
+                // unstressed (v1 != A_OG) so it keeps `aj`. Gate: l-onset AND A_OG only (engine-verified).
+                val c0 = listOf("-${v1}j","${v1}j","${base}j","-${base}j")
+                if (onset == "l" || onset == "L") listOf("-${base}i","${base}i") + c0 else c0
+            } else
                 listOf("${base}j","-${base}j","-${v1}j","${base}i","-${base}i")
             if (prevSoft) listOf("$base|j") + base0 else base0
         }
@@ -407,9 +411,22 @@ internal object Selection {
                     // Cv|-- combined SOFT-syllable unit: t+i (ti|--) AND a SOFT consonant + u/o (lu|--/lo|--,
                     // liutas l'u / liokajus l'o); hard stalu/galu/metalo play the plain pair. Engine-verified.
                     val softC = palatals?.getOrNull(i) ?: false
-                    val combo = if (v.length == 1 && (v[0] == 'i' || ((v[0] == 'u' || v[0] == 'o') && softC))) "${c}${v}|--" else null
-                    val comboUu = combo != null && combo in units && v[0] == 'u'   // only u -> dashed body
+                    // long-ū/ų (U_OG) after a SOFT consonant takes the SAME Cu|-- combo as short u (soft-l +
+                    // long-ū: liūtas/brolių/gilių/arklių -> lu|--). The combo KEY uses the short-u letter; the
+                    // body stays the `ū|` pipe (comboUu is short-u-only). Gated on softC AND the unit existing.
+                    val comboV = if (v == U_OG) "u" else v
+                    val combo = if (v.length == 1 && (v == "i" || ((v == "u" || v == "o" || v == U_OG) && softC)))
+                        "${c}${comboV}|--" else null
+                    val comboUu = combo != null && combo in units && v == "u"   // only u -> dashed body
                     val diphCombo = if (v.length == 2 && "${c}${v}|" in units) "${c}${v}|" else null
+                    // SOFT-GLIDE `e|ų` for an ACUTE "iau"/"jau" (front-end splits it into a stressed front-vowel
+                    // `e` + a stressed u-offglide as TWO phones). After a SOFT consonant the engine renders this
+                    // palatalized falling diphthong as ONE pipe body `e|ų` (j -> the j-specific `-je|ų`):
+                    // kriaušė/siaubas/džiaugsmas -> Ce- + e|ų; jausmas -> je- + -je|ų. Consumes the u (i += 3).
+                    val euBody = if (c in listOf("j","J") && "-je|$U_OG" in units) "-je|$U_OG"
+                                 else if ("e|$U_OG" in units) "e|$U_OG" else null
+                    val euSoft = softC && v == "e" && vst && i + 2 < n &&
+                            phones[i + 2] == "u" && stresses[i + 2] && euBody != null
                     val on = when {
                         diphCombo != null -> null
                         combo != null && combo in units -> combo
@@ -421,6 +438,7 @@ internal object Selection {
                     val dipkeys = mutableSetOf<String>()
                     var pbod: String? = null
                     when {
+                        euSoft -> { chain.add(euBody!!); pbod = euBody }   // soft "iau"/"jau": Ce- onset + e|ų body
                         falling && v == "ei" -> {
                             val (dion, dbod) = diphUnits(v, units)
                             if (dion != null) { chain.add(dion); dipkeys.add(dion) }
@@ -429,7 +447,7 @@ internal object Selection {
                         falling -> {
                             // SOFT onset + `ui` -> the `u|j` pipe-glide (kurjeriui/vyriui/broliui).
                             val gl = glideUnit(v[0].toString(), v[1].toString(), vst, units,
-                                               prevSoft = (palatals != null && palatals[i]))
+                                               prevSoft = (palatals != null && palatals[i]), onset = c)
                             if (gl != null && gl.startsWith("-")) {
                                 val nbody = bodyUnit(c, v[0].toString(), false, units)
                                 if (nbody != null) { chain.add(nbody); pbod = nbody }
@@ -481,7 +499,7 @@ internal object Selection {
                     // /arklius -> ...lu|-- -lu + bare `s`, NOT -os). Engine-Lookup verified.
                     prevPipe = (pbod != null && pbod.endsWith("|")) || comboUu
                     prevBare = false   // dashed/pipe body -> following coda stays standalone
-                    val ic = dur; val iv = vdur
+                    val ic = dur; val iv = vdur + (if (euSoft) durs[i + 2] else 0)   // eu_soft glide spans e+u
                     val natDips = chain.sumOf { k ->
                         if (k in dipkeys || k != pbod) onsetLen(k, vf0, units) else 0.0
                     }
@@ -503,19 +521,20 @@ internal object Selection {
                                 grainTarget(k, units, vlong, iv * K_DUR - natDips - onsetLen(on, vf0, units)),
                                 true, true, vf0))
                     }
-                    tag(i + 1); i += 2
+                    tag(i + 1); i += if (euSoft) 3 else 2   // eu_soft consumed the following u-offglide too
                 } else {
                     // leftover consonant (coda or standalone)
                     val pv = prev?.let { if (it.length == 2) it[1].toString() else it } ?: ""
                     val nxtUnburst = nxt != null && nxt.isNotEmpty() && nxt[0] in STOPS && i + 2 < n &&
                             isVowel(phones[i + 2]) && onsetUnit(nxt, phones[i + 2][0], units) == null
-                    // n before k: standalone after e (penki), but the -an/-ąn coda after a/ą (bankas/lankas).
-                    val nBefK = nxt != null && c in "nN" && nxt in "kK" && pv != "a" && pv != A_OG
-                    // r before a stop/nasal: standalone after e (any) or i (before t); else the -Vr coda.
-                    val rBefT = if (nxt != null && c in "rR") {
-                        val nxtTkn = nxt in "tTkKnN"; val nxtT = nxt in "tT"
-                        (nxtTkn && pv == "e") || (nxtT && pv != "a" && pv != A_OG && pv != "u")
-                    } else false
+                    // n-coda after mid-front e/ę is STANDALONE before ANY consonant + word-final (vandens/žentas/
+                    // šiandien/kentėti); after back a/ą/u/i it KEEPS the -Vn coda (dantis/rankos/bankas -an/-ąn).
+                    // Positive on pv == e/ę, independent of the next consonant (engine-Lookup verified 2026-06-20).
+                    val nFront = c in "nN" && (pv == "e" || pv == "ę")
+                    // r-coda after mid-front e/ę is STANDALONE before ANY consonant + word-final (gerti/verkti/
+                    // verslas/mergaitė); after back a/ą/o/u it KEEPS the -Vr coda (vartai/darbas/turtas/sportas).
+                    // i has no -ir unit so it falls back standalone on its own. Positive on e/ę, like nFront.
+                    val rFront = c in "rR" && (pv == "e" || pv == "ę")
                     val nxtSoft = palatals?.getOrNull(i + 1) ?: false
                     val lPipe = c in "lL" && "l|" in units && nxt != null && nxt != "" &&
                             nxt != "_" && !isVowel(nxt) && nxtSoft
@@ -523,10 +542,17 @@ internal object Selection {
                         emit(TilingElem("dip", "l|", (dur * K_DUR).takeIf { it >= 0 }, true, true, f0))
                         tag(i); i++; prevPipe = true; continue
                     }
-                    val codaCands = if (prev != null && isVowel(prev) && !prevPipe && !nxtUnburst && !nBefK && !rBefT) {
+                    val codaCands = if (prev != null && isVowel(prev) && !prevPipe && !nxtUnburst && !nFront && !rFront) {
                         val cl = mutableListOf("-$pv$c")
                         if (pv.isNotEmpty() && pv[0] in LONG2SHORT) cl.add("-${LONG2SHORT[pv[0]]}$c")
-                        if (pv == "u") cl.add("-o$c")
+                        if (pv == "u") {
+                            cl.add("-o$c")
+                            // u rounds to `o` before most obstruents, but where the voice recorded NO `-oc` it
+                            // falls back to the `-ac` a-form: `d` has ONLY `-ad` (no -od), so u/au + d -> `-ad`
+                            // (audra àu-d, futbolas u-d). Fires for both the bare `au` diphthong and the dashed
+                            // `-Cu` body -- both excluded by the generic `-ac` gate below.
+                            cl.add("-a$c")
+                        }
                         // GENERIC `-aC` for an OBSTRUENT coda after a BARE vowel body (engine-verified grid
                         // 2026-06-12: word-initial i/e/y + k/p/t/f/z all back off to the a-coda; xkcd's
                         // i-k = '-ak'). THREE gates, each engine-confirmed: SONORANT codas never back off

@@ -220,6 +220,13 @@ def synthesize(plan, rate=None, pitch=None, _frame_rpos=None):
     # renders fast bit-exact). An explicit host rate (0..100) overrides via rate_thr (50=neutral).
     thr = getattr(plan, 'cap_thr', THR) if rate is None else rate_thr(rate)
     pdc = pitch_pdc(pitch)                          # pitch=None -> 294 (the SetPitch min sentinel; bit-exact)
+    # INNER-EPOCH IIR LAG: the engine emits the 2nd+ epoch of a pass at the PRE-IIR period (P0,P1,P1,P2..) --
+    # but ONLY the SHIFTED rate/pitch path needs it. At the NEUTRAL (bit-exact) sentinel the captures show NO
+    # lag: a long-vowel rising contour climbs 286,287,288 (not 286,286,288). The lag here skipped 287 and made
+    # dantis/naktis/rankos/liaudis (long-stressed-vowel + combo words) 1 sample short -> ~71%. So the lag is
+    # gated OFF when neutral (matches the proven research gen_synth + the engine wav bit-for-bit), ON when
+    # rate/pitch is set (the rework's E5C5-refetch model that the @450wpm/@90Hz validations needed).
+    _lag = (rate is not None) or (pitch is not None)
     # release_rpos: arm the se8 fall at an EXACT output sample (the engine's true arm = cumulative output of
     # the chars before arm_char, recovered from the per-grain char hook). Overrides the per-frame 'release'
     # flag. None => frame-based arm / captured contour (the bit-exact demo path is unaffected => 14/14 held).
@@ -364,12 +371,12 @@ def synthesize(plan, rate=None, pitch=None, _frame_rpos=None):
                 cand = _trunc((f8 + per) * 100, e4)   # continue-gate with the JUST-EMITTED period
                 if ramp:
                     _se8_burst()             # this epoch's fda0 se8 burst (s_f0 chases the advanced s_e0)
-                if first:                    # pass-initial epoch: refetch AFTER its fda0 (E595->E5A0) -> post-IIR
-                    s94l = _iir(s94l, s90e)
+                if first or not _lag:        # pass-initial epoch (or the NEUTRAL bit-exact path): refetch AFTER
+                    s94l = _iir(s94l, s90e)  # its fda0 (E595->E5A0) -> post-IIR period (no lag)
                     per = pper(s94l)
                     first = False
-                else:                        # inner epochs: the E5C5 refetch PRECEDES that epoch's fda0 -> the
-                    nper = pper(s94l)        # period lags one IIR step (engine emits P0,P1,P1,P2,...)
+                else:                        # SHIFTED rate/pitch inner epochs: the E5C5 refetch PRECEDES that
+                    nper = pper(s94l)        # epoch's fda0 -> period lags one IIR step (engine emits P0,P1,P1,P2)
                     s94l = _iir(s94l, s90e)
                     per = nper
                 if not (cand < thr):

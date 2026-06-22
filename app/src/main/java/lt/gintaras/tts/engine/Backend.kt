@@ -92,6 +92,11 @@ internal object Backend {
         val frames = plan.frames
         val thr = if (rate == null) (plan.capThr ?: THR) else rateThr(rate)
         val pdc = pitchPdc(pitch)
+        // INNER-EPOCH IIR LAG: the engine emits the 2nd+ epoch of a pass at the PRE-IIR period (P0,P1,P1,P2..)
+        // -- but ONLY the SHIFTED rate/pitch path needs it. At the NEUTRAL (bit-exact) sentinel there is NO lag
+        // (a long-vowel rising contour climbs 286,287,288 not 286,286,288); the lag made dantis/naktis/rankos/
+        // liaudis 1 sample short (~71%). Gate it OFF when neutral, ON when rate/pitch is set.
+        val lag = rate != null || pitch != null
         val releaseRposInit = plan.releaseRpos
         val armList = plan.releaseRposList
         var armI = 0
@@ -193,11 +198,11 @@ internal object Backend {
                         f8 += per; rpos += per; cnt++
                         val cand = trunc((f8 + per) * 100, e4)        // gate with the just-emitted period
                         if (ramp) se8Burst()
-                        if (first) {            // pass-initial epoch: refetch AFTER its fda0 -> post-IIR
-                            s94l = iir(s94l, s90e)
+                        if (first || !lag) {    // pass-initial epoch (or NEUTRAL bit-exact path): refetch AFTER
+                            s94l = iir(s94l, s90e)  // its fda0 -> post-IIR period (no lag)
                             per = pper(s94l)
                             first = false
-                        } else {                // inner epochs: refetch PRECEDES the fda0 -> one-step lag
+                        } else {                // SHIFTED rate/pitch inner epochs: refetch PRECEDES the fda0 -> lag
                             val nper = pper(s94l)
                             s94l = iir(s94l, s90e)
                             per = nper

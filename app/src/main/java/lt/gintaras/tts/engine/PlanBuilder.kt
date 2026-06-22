@@ -31,6 +31,16 @@ internal object PlanBuilder {
     private val STOPS = setOf('p','b','t','d','k','g','P','B','T','D','K','G')
     private val BURST_FID = mapOf("k" to 4788)
 
+    // PRIE_EARLY: prie- prefixed words whose se8 fall arms at the syllable-1 -ie/-uo offglide START (the prefix
+    // is prefix-stressed). VERIFIED-BY-CONSTRUCTION word list (a word is listed only if the offglide arm
+    // reproduces the engine WAV bit-exactly) -- same model as SHORT_O. (prie_early_data.py, 2026-06-21.)
+    private val PRIE_EARLY = setOf(
+        "priebradė","priebutis","priedanga","priedėlis","priegaida","priekaba","priekabos","priekabus","priekabė",
+        "priekabę","priekalas","prielanka","prielipa","priemaina","priemiega","priemoka","priemokos","priemonei",
+        "priemonė","priemonės","priesaika","priesakas","priesienė","prievolė","prievolės","priežiūra","priežiūrą",
+        "priežodis"
+    )
+
     // ---- unit-pad cache (Voice.parseUnitPads is expensive; call once) -----------------
 
     @Volatile private var cachedPads: Map<String, Pair<List<Int>, List<Int>>>? = null
@@ -200,7 +210,8 @@ internal object PlanBuilder {
         return out
     }
 
-    private fun a5Eligible(key: String, phone: String, D: Int?, prevPhone: String?, raw: String? = null): String? {
+    private fun a5Eligible(key: String, phone: String, D: Int?, prevPhone: String?, raw: String? = null,
+                           ooSuppress: Boolean = false): String? {
         val body = key.trimStart('-').trimEnd('-').replace("|", "")
         val isCoda = key.startsWith("-") || (!key.endsWith("-") && key.length <= 3)
         val isOnset = key.endsWith("-")
@@ -208,15 +219,21 @@ internal object PlanBuilder {
         if (isCoda && body.isNotEmpty() && body.last().toString() in A5_LONG_MONO
             && pl.length == 1 && pl in A5_LONG_MONO
         ) {
-            // a HIATUS o (a vowel immediately before it) doubles only when the RAW transcr token is the
-            // LONG doubled 'oo'/'Oo'/'oO' (ios i-oo-s: engine a5=[0,1x10], capture_prosody-verified); the
-            // SHORT stressed 'O' (chaosas a-O) does NOT double. norm() collapses both to 'o', so the raw
-            // token (PhoneEntry.raw) carries the distinction.
-            if (prevPhone != null && Selection.isVowel(prevPhone)) {
-                val rawLong = raw != null && raw.replace("'", "").lowercase() == "oo"
-                if (!rawLong) return null
-            }
-            return if (D == null || D >= A5_DMIN) "o" else null
+            // long-/o:/ doubling gated on the lt_ilgiai LENGTH CODE (the raw transcr token), NOT the old D>=108
+            // duration proxy (which missed sportas/tortas/forma `Oo` dur107, korta `oo` dur103). 2-letter code
+            // (oo/oO/Oo) = LONG -> double; 1-letter (o/O) = SHORT -> no double. (Engine a5-confirmed 2026-06-20.)
+            val rl = raw?.replace("'", "")?.lowercase() ?: ""
+            if (raw == null) return if (D == null || D >= A5_DMIN) "o" else null  // legacy fallback (no raw token)
+            if (rl.length != 2) return null                                        // SHORT o ('o'/'O') -> no double
+            // a HIATUS o (vowel immediately before) doubles only for lowercase 'oo' (ios i-oo-s); stressed O/Oo
+            // after a vowel (chaosas a-O) does NOT double.
+            if (prevPhone != null && Selection.isVowel(prevPhone) && rl != "oo") return null
+            // DF90 BUDGET SUPPRESSION: an unstressed-long 'oo' (lowercase, no capital) in a >=4-syllable word,
+            // strictly BEFORE the stressed syllable, is dropped (automobilis/restoranas/dokumentas/kolonada no
+            // double; komanda/koridorius/monotonas at/after-stress still double). Stressed-long oO/Oo never
+            // suppressed. (Engine a5-confirmed, computed by genA5List and passed as ooSuppress. 2026-06-21.)
+            if (!raw.contains("O") && ooSuppress) return null
+            return "o"
         }
         // the o-HEAD body of an `ou` loanword diphthong (sound/about/out/loud...). Selection renders `ou`
         // as a real long-o body `-Co` (this branch) + the `-ou` u-offglide, because the recorded `-ou` is
@@ -241,6 +258,15 @@ internal object PlanBuilder {
         val phones = full.map { it.phone }
         val durs = full.map { it.dur }
         val raws = full.map { it.raw }   // raw transcr token ('oo' vs 'O' for the hiatus-o gate)
+        // DF90 oo-doubling suppression: an unstressed-long 'oo' in a >=4-syllable word, strictly BEFORE the
+        // stressed syllable, is not doubled (the engine's recursive budget runs out for pre-stress vowels).
+        val vidx = phones.indices.filter { Selection.isVowel(phones[it]) }
+        val stressVi = vidx.indexOfFirst { full[it].stressed }.takeIf { it >= 0 }
+        val nsyl = vidx.size
+        fun ooSuppress(pi: Int?): Boolean {
+            if (pi == null || stressVi == null || nsyl < 4 || pi !in vidx) return false
+            return vidx.indexOf(pi) < stressVi
+        }
 
         val out = mutableListOf<Int>()
         var i = 0
@@ -261,7 +287,7 @@ internal object PlanBuilder {
             } else {
                 val prevPhone = if (pi != null && pi >= 1) phones.getOrNull(pi - 1) else null
                 val raw = if (pi != null) raws.getOrNull(pi) else null
-                val cls = if (n <= 14) a5Eligible(key, phone, D, prevPhone, raw) else null
+                val cls = if (n <= 14) a5Eligible(key, phone, D, prevPhone, raw, ooSuppress(pi)) else null
                 when (cls) {
                     "o"  -> out.addAll(a5LongDistribute(n))
                     "au" -> { out.add(0); repeat(n - 1) { out.add(1) } }
@@ -312,10 +338,20 @@ internal object PlanBuilder {
         val dskip = (1 until n).filter {
             engstr[it - 1] == 0x61.toByte() && (engstr[it].toInt() and 0xff) in DIPH_GLIDES
         }.toSet()
-        val skip = pipes + dskip
         // s7c = strlen of the word the ENGINE would see: our i-hiatus reading feeds the engine-equivalent
         // DOUBLED word (ios is rendered as iios), so the arm midpoint must use the expanded length too.
-        val seg = Transcribe.s7cWord(word).length / 2
+        val s7cLen = Transcribe.s7cWord(word).length
+        // PIPED RISING-diphthong 2nd element (uo|/ie|): a soft `uo|`/`ie|` is ONE unit, so the engine's per-char
+        // loop SKIPS the 2nd element + the `|` -- važiuoti arms at `t`(6), not `o`(4). LENGTH-GATED to s7c>5:
+        // in short words (diena `die|na`, s7c=5) the boundary lands ON the diphthong so the engine arms INSIDE
+        // the ie body (flat); skipping past it armed too late. (vienas s7c=6 keeps the skip; engine-verified.)
+        val rdskip = if (s7cLen > 5) (1 until n - 1).filter {
+            val a = engstr[it - 1].toInt() and 0xff; val b = engstr[it].toInt() and 0xff
+            val c2 = engstr[it + 1].toInt() and 0xff
+            ((a == 0x75 && b == 0x6f) || (a == 0x69 && b == 0x65)) && c2 == 0x7c
+        }.toSet() else emptySet()
+        val skip = pipes + dskip + rdskip
+        val seg = s7cLen / 2
         for (k in 0 until n) { if (k !in skip && k >= seg) return k }
         return n - 1
     }
@@ -325,6 +361,31 @@ internal object PlanBuilder {
         val armc = genArmc(word, engstr)
         if (armc < 0 || armc >= pos2phone.size) return null  // armc<0: phone-less word (emoji/symbol) -> no arm
         val ap = pos2phone[armc]; if (ap < 0) return null
+        // FALLING-`ei`-DIPHTHONG OFFGLIDE arm (veidas/seimas/reidas/peilis = C+ei+C+ending): the engine arms the
+        // se8 fall at the nucleus->offglide boundary (`-ei`/`-ej` start), but pos2phone places armc on the
+        // consonant AFTER the diphthong, so the default arm_frame skips PAST the offglide -> ~40-52%. Detect in
+        // FRAME space: the frame before arm_frame is the `-ei`/`-ej` offglide coda; arm at the offglide-run START.
+        // GATED tight: 2-syllable C+ei+C words only (`-ai`/`-au` and word-initial ei excluded). (Engine-verified.)
+        val af = frames.indices.firstOrNull { frames[it].pi != null && frames[it].pi!! >= ap }
+        if (af != null && af > 1 && frames[af - 1].key in listOf("-ej", "-ei")) {
+            val f0Key = frames.firstOrNull { it.pi != null }?.key ?: ""
+            val nsyl2 = Selection.frontendFree(word).count { it.phone != "_" && Selection.isVowel(it.phone) }
+            if (f0Key.endsWith("-") && nsyl2 == 2) {
+                var s = af - 1
+                while (s > 0 && frames[s - 1].key == frames[af - 1].key) s--
+                if (s > 0) return frameRpos[s - 1] + SE8_SEC_LAG
+            }
+        }
+        // PRIE-PREFIX rising-`ie` EARLY arm (priežiūra/priežodis/priekaba/priemonė...): a prefix-stressed prie-
+        // word arms the se8 fall at the syllable-1 `-ie`/`-uo` offglide START. VERIFIED word list (PRIE_EARLY) --
+        // applying it can never degrade; words not listed keep the default arm. Same model as SHORT_O. (2026-06-21.)
+        if (word.lowercase() in PRIE_EARLY && af != null && af > 1
+            && frames[af - 1].key in listOf("-ie", "-uo")
+        ) {
+            var s = af - 1
+            while (s > 0 && frames[s - 1].key == frames[af - 1].key) s--
+            if (s > 0) return frameRpos[s - 1] + SE8_SEC_LAG
+        }
         val vpos = engstr.indices.filter { pos2phone[it] == ap && engstr[it] != 0x7c.toByte() }
         val elemIdx = vpos.indexOf(armc).let { if (it < 0) 0 else it }
         val apIdx = frames.indices.filter { frames[it].pi == ap }
@@ -431,18 +492,33 @@ internal object PlanBuilder {
         // rate/pitch: releaseRpos is an absolute OUTPUT-sample position and a fast THR compresses the
         // output (a natural-schedule arm misfires at fast rates). rate=null keeps the bit-exact path.
         val framesList = mframes.toList()
-        val plan0 = Backend.Plan(framesList, tail)
+        // The no-arm pass must be GENUINELY no-arm: Plan() sets se8Ramp=true from the per-frame release flags, so
+        // without this it arms at the COARSE frame-release flag, contaminating frame_rpos and landing the real arm
+        // EARLY on long words. Force se8Ramp=false so the pass holds the flat -20 declination (the true pre-arm
+        // cumulative) -- BUT only when the arm lands on a VOICED frame. When the arm lands on a PAUSE/closure frame
+        // (politika `ti|--`), the +100 contour lag off the previous voiced frame undershoots, and the contaminated
+        // (frame-release) pass happens to place it right. Gate the clean pass on a NON-pause arm frame. When NO arm
+        // fires at all (single vowels/sonorants), this flat plan is returned as-is (no se8 fall). (2026-06-20.)
+        val (esArm, p2pArm) = genEngstrMap(word)
+        val armcArm = genArmc(word, esArm)
+        val apArm = if (armcArm in 0 until p2pArm.size) p2pArm[armcArm] else null
+        val armFrameArm = if (apArm != null && apArm >= 0)
+            framesList.indices.firstOrNull { framesList[it].pi != null && framesList[it].pi!! >= apArm }
+            else null
+        val armIsPause = armFrameArm != null && framesList[armFrameArm].pause
+        val plan = Backend.Plan(framesList, tail)
+        if (!armIsPause) plan.se8Ramp = false
         val frRpos = mutableListOf<Int>()
-        Backend.synthesize(plan0, rate = rate, pitch = pitch, frameRpos = frRpos)
+        Backend.synthesize(plan, rate = rate, pitch = pitch, frameRpos = frRpos)
         val rr = genArmRpos(word, framesList, frRpos)
         if (rr != null) {
-            val stripped = framesList.map { it.copy(release = false) }
-            val plan = Backend.Plan(stripped, tail)
-            plan.se8Ramp = true
-            plan.releaseRpos = rr
-            return plan
+            val stripped = framesList.map { it.copy(release = false) }  // releaseRpos overrides the per-frame flag
+            val plan2 = Backend.Plan(stripped, tail)
+            plan2.se8Ramp = true
+            plan2.releaseRpos = rr
+            return plan2
         }
-        return plan0
+        return plan
     }
 
     // ---- buildPlanPhrase -------------------------------------------------------------

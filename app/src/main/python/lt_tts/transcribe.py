@@ -176,12 +176,14 @@ def _i_hiatus(word):
 
 
 def _iou_hiatus(word):
-    """Mid-word foreign "iou" (the English -ious family: previous/serious/various/obvious/curious/anxious):
-    transcr4 treats the i as a bare palatalization mark and DELETES it -> "prevous". Unlike a generic
-    mid-word i+vowel (a REAL native palatalization: brolio->b-r-oo-l'-oo, biuras->b'-uras -- must stay),
-    the letter run "iou" never occurs in a native Lithuanian word (the "ou" diphthong is loanword-only),
-    so keeping the i here cannot mispronounce any native word. Fix mirrors _i_hiatus: DOUBLE the i
-    ("iou"->"iiou"). OOV-only, so the two lexicon words with "iou" (aeiou, slioun) are untouched."""
+    """Mid-word foreign "iou" (the English -ious family: previous, serious, various, obvious, curious,
+    anxious): transcr4 treats the i as a bare palatalization mark and DELETES it -> "prevoous" (the i
+    vanishes, "previous" reads "prevous"). Unlike a generic mid-word i+vowel (which is a REAL native
+    palatalization: brolio->b-r-oo-l'-oo, biuras->b'-uras -- must stay), the letter run "iou" never occurs
+    in a native Lithuanian word (the "ou" diphthong itself is loanword-only), so keeping the i here cannot
+    mispronounce any native word. Fix mirrors _i_hiatus: DOUBLE the i ("iou"->"iiou") so the first i
+    survives as the vowel and the second is consumed by the engine's palatalization rule -> 'i oo w'.
+    OOV-only (after the lexicon misses), so the two lexicon words with "iou" (aeiou, slioun) are untouched."""
     low = word.lower()
     if "iou" not in low:
         return word
