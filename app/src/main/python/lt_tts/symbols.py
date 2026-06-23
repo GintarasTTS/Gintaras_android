@@ -40,6 +40,26 @@ _DELIMS = set(u".,;:!?—")
 # §3, A&B, #1, 20°) -- kept spoken even with punctuation off (they live in emoji.tsv, not punct.tsv)
 _PUNCT_KEEP = set(u"%‰§¶&#°")
 
+# Decimal separator naming (espeak-style): a comma/period sitting DIRECTLY between two digit groups
+# is a decimal mark and is SPOKEN, e.g. '2,5' -> '2 kablelis 5' -> "du kablelis penki". The fractional
+# part is read as a whole number ('2,75' -> "du kablelis septyniasdešimt penki"). A run with two or more
+# separators is a date / time / thousands group (2026.06.12, 21:20, 1,234,567), NOT a decimal -- it is
+# left untouched so the normal punctuation step turns those inter-digit separators into word gaps.
+_DECIMAL_RUN = re.compile(r"\d+(?:[.,:]\d+)+")
+_DECIMAL_WORD = {u",": u"kablelis", u".": u"taškas"}
+
+# Always-read symbols (espeak-style text normalization), independent of the punctuation-verbosity setting:
+#   * a '-' directly before a digit, at the start of the text or after a space, is a MINUS sign:
+#     '-15' -> 'minus 15', 'temperatūra -15 laipsnių' -> '... minus 15 ...'.
+#   * '.', '*', '@' GLUED between two LETTERS (no spaces) are read by name so identifiers stay legible:
+#     'lrt.lt' -> 'lrt taškas lt', 'a*b' -> 'a žvaigždutė b', 'vardas@host' -> 'vardas eta host'.
+# A '-' BETWEEN letters is NOT read (Lithuanian hyphenated words like 'kažin-kas' read naturally); a '-'
+# preceded by a digit ('2026-06-12') is not a minus either. Letters = Unicode letters (incl. ą č ę ...),
+# so a separator between DIGITS never triggers the inter-letter rule (decimals/dates are handled above).
+_MINUS_RE = re.compile(r"(?<![^\W_])-(?=\d)")        # '-' before a digit, NOT preceded by a letter/digit
+_INLETTER_RE = re.compile(r"(?<=[^\W\d_])([.*@])(?=[^\W\d_])")
+_INLETTER_WORD = {u".": u"taškas", u"*": u"žvaigždutė", u"@": u"eta"}
+
 _MAPS = {}                      # filename -> (dict, compiled-regex|None); cached per file
 _LETTERS = {}                   # filename -> {'names': {ch:txt}, 'sounds': {ch:txt}}  (None inside = absent)
 
@@ -127,6 +147,32 @@ def _strip_punct(text):
     return "".join(out)
 
 
+def _read_decimals(text):
+    """Name a LONE decimal separator that sits directly between two digit groups, espeak-style:
+    '2,5' -> '2 kablelis 5', '2.5' -> '2 taškas 5'. Runs through this BEFORE the punctuation step, so the
+    decimal is spoken even with punctuation reading off (it is number formatting, not prose punctuation).
+    Only a SINGLE separator counts: a chain of two or more (2026.06.12, 21:20, 1,234,567) is a date / time /
+    thousands group and is left for the normal inter-digit-gap handling. A trailing sentence period ('2,5.')
+    is not part of the digit run, so it stays a clause delimiter. '2, 3' (separator + space) never matches."""
+    def repl(m):
+        run = m.group(0)
+        seps = re.findall(r"[.,:]", run)
+        if len(seps) == 1 and seps[0] in _DECIMAL_WORD:
+            i = run.index(seps[0])
+            return run[:i] + u" " + _DECIMAL_WORD[seps[0]] + u" " + run[i + 1:]
+        return run
+    return _DECIMAL_RUN.sub(repl, text)
+
+
+def _read_symbols(text):
+    """Speak a leading-minus before a digit ('-15' -> 'minus 15') and a '.'/'*'/'@' glued between two letters
+    ('lrt.lt' -> 'lrt taškas lt'). Runs BEFORE the punctuation step, so these are spoken even with punctuation
+    reading off. See _MINUS_RE / _INLETTER_RE for the exact (espeak-style) contexts."""
+    text = _MINUS_RE.sub(u"minus ", text)
+    text = _INLETTER_RE.sub(lambda m: u" " + _INLETTER_WORD[m.group(1)] + u" ", text)
+    return text
+
+
 # ---- letter substitution (the isolated=NAME / in-word=SOUND rule) --------------------------------------------
 def _sub_letters(text, blocks, charclass_re):
     """Replace every letter in `blocks` found in `text`: an ISOLATED single letter -> its NAME (space-padded so
@@ -172,6 +218,20 @@ def expand(text, read_emoji=None, read_cyrillic=None, read_latvian=None, read_pu
     re_l = READ_LATVIAN if read_latvian is None else read_latvian
     re_p = READ_PUNCTUATION if read_punctuation is None else read_punctuation
     changed = False
+
+    # Decimal numbers first: a comma/period directly between two digit groups is a decimal mark and must be
+    # SPOKEN ('2,5' -> 'du kablelis penki'), like espeak -- regardless of the punctuation-verbosity setting.
+    t2 = _read_decimals(text)
+    if t2 != text:
+        text = t2
+        changed = True
+
+    # Minus sign before a digit, and '.'/'*'/'@' glued between letters -> spoken (espeak-style), also
+    # independent of the punctuation setting (number/identifier formatting, not prose punctuation).
+    t2 = _read_symbols(text)
+    if t2 != text:
+        text = t2
+        changed = True
 
     if re_p:
         text, c = _sub_map(text, "punct.tsv")     # name quotes/dashes/brackets/...

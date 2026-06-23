@@ -1,5 +1,7 @@
 package lt.gintaras.tts.engine
 
+import java.util.regex.Pattern
+
 // Kotlin port of lt_tts/symbols.py
 // Optional symbol reading: emoji, punctuation, Cyrillic, Latvian-unique letters.
 // emoji.tsv and punct.tsv share one flat `<char><TAB><text>` format and matcher; split into two files only
@@ -15,6 +17,48 @@ internal object Symbols {
     // text-normalization symbols mainstream TTS engines DO read as part of plain text (50% -> "proc",
     // §3, A&B, #1, 20°) -- kept spoken even with punctuation off (they live in emoji.tsv, not punct.tsv)
     private val PUNCT_KEEP = setOf('%', '‰', '§', '¶', '&', '#', '°')
+
+    // Decimal separator naming (espeak-style): a comma/period DIRECTLY between two digit groups is a decimal
+    // mark and is SPOKEN, '2,5' -> '2 kablelis 5' -> "du kablelis penki" (fraction read as a whole number).
+    // A run with two or more separators is a date/time/thousands group (2026.06.12, 21:20, 1,234,567), NOT a
+    // decimal -- left untouched so the normal punctuation step turns those inter-digit separators into gaps.
+    private val DECIMAL_RUN = Regex("\\d+(?:[.,:]\\d+)+")
+    private val DECIMAL_WORD = mapOf(',' to "kablelis", '.' to "taškas")
+
+    // Always-read symbols (espeak-style), independent of the punctuation setting (number/identifier
+    // formatting, not prose punctuation): a '-' before a digit and not preceded by a letter/digit is a
+    // MINUS ('-15' -> 'minus 15'); a '.'/'*'/'@' glued between two LETTERS is read by name ('lrt.lt' ->
+    // 'lrt taškas lt'). A '-' between letters is NOT read (Lithuanian hyphenated words read naturally),
+    // and a '-' after a digit ('2026-06-12') is not a minus. UNICODE_CHARACTER_CLASS so \W/\d treat
+    // Lithuanian letters (ą č ę ...) as letters, matching Python's re defaults.
+    private val MINUS_RE = Pattern.compile("(?<![^\\W_])-(?=\\d)", Pattern.UNICODE_CHARACTER_CLASS).toRegex()
+    private val INLETTER_RE = Pattern.compile("(?<=[^\\W\\d_])([.*@])(?=[^\\W\\d_])", Pattern.UNICODE_CHARACTER_CLASS).toRegex()
+    private val INLETTER_WORD = mapOf('.' to "taškas", '*' to "žvaigždutė", '@' to "eta")
+
+    /** Speak a leading-minus before a digit and a '.'/'*'/'@' glued between two letters. Runs BEFORE the
+     *  punctuation step so these are spoken even with punctuation reading off. */
+    private fun readSymbols(text: String): String {
+        var t = MINUS_RE.replace(text, "minus ")
+        t = INLETTER_RE.replace(t) { m -> " " + INLETTER_WORD.getValue(m.groupValues[1][0]) + " " }
+        return t
+    }
+
+    /** Name a LONE decimal separator between two digit groups: '2,5' -> '2 kablelis 5', '2.5' -> '2 taškas 5'.
+     *  Runs BEFORE the punctuation step so the decimal is spoken even with punctuation reading off (number
+     *  formatting, not prose punctuation). Only a SINGLE separator counts -- a chain (2026.06.12, 21:20,
+     *  1,234,567) is a date/time/thousands group, left for the normal inter-digit-gap handling. A trailing
+     *  sentence period ('2,5.') is not part of the digit run; '2, 3' (separator + space) never matches. */
+    private fun readDecimals(text: String): String {
+        return DECIMAL_RUN.replace(text) { m ->
+            val run = m.value
+            val seps = run.filter { it == '.' || it == ',' || it == ':' }
+            val w = if (seps.length == 1) DECIMAL_WORD[seps[0]] else null
+            if (w != null) {
+                val i = run.indexOf(seps[0])
+                run.substring(0, i) + " " + w + " " + run.substring(i + 1)
+            } else run
+        }
+    }
 
     private fun isPunctChar(ch: Char): Boolean {
         val t = Character.getType(ch)
@@ -155,6 +199,15 @@ internal object Symbols {
                readPunctuation: Boolean = false): String {
         var t = text
         var changed = false
+
+        // Decimal numbers first: a comma/period directly between two digit groups is a decimal mark and must
+        // be SPOKEN ('2,5' -> 'du kablelis penki'), like espeak -- regardless of the punctuation setting.
+        val td = readDecimals(t)
+        if (td != t) { t = td; changed = true }
+
+        // Minus before a digit, and '.'/'*'/'@' glued between letters -> spoken (espeak-style).
+        val ts = readSymbols(t)
+        if (ts != t) { t = ts; changed = true }
 
         // Punctuation runs FIRST and on the ORIGINAL text. readPunctuation=true names the punct.tsv marks;
         // the default (false) strips punctuation BEFORE the emoji pass, so stray quotes/brackets never reach
