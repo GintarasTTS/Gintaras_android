@@ -116,6 +116,10 @@ class GintarasTtsService : TextToSpeechService() {
         // is off -- so we must keep it inside the clause and let the engine handle it, instead of
         // splitting here and inserting our own long clause pause. This matches the NVDA/Python path,
         // which feeds the whole string straight to the engine.
+        // Likewise a '.' glued BETWEEN TWO LETTERS ("lrt.lt", "jonas.lrt.lt") is not a sentence break:
+        // the engine NAMES it ("taškas") in Symbols.expand BEFORE any clause split. If we split on it
+        // here, the period lands at a clause edge (no letter on one side) and gets stripped to a pause
+        // instead -- one "taškas" lost per glued period. Keep it in the clause and let the engine name it.
         val result = mutableListOf<ClauseToken>()
         val sb = StringBuilder()
         val n = text.length
@@ -124,8 +128,10 @@ class GintarasTtsService : TextToSpeechService() {
             if (c in ".,;:!?—") {
                 val betweenDigits = i > 0 && text[i - 1].isDigit() &&
                                     i + 1 < n && text[i + 1].isDigit()
-                if (betweenDigits) {
-                    sb.append(c)            // keep in clause -> engine renders a word gap
+                val interLetterDot = c == '.' && i > 0 && text[i - 1].isLetter() &&
+                                     i + 1 < n && text[i + 1].isLetter()
+                if (betweenDigits || interLetterDot) {
+                    sb.append(c)            // keep in clause -> engine names it / renders a word gap
                     continue
                 }
                 result.add(ClauseToken(sb.toString().trim(), c.toString()))
