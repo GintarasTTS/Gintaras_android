@@ -1,60 +1,46 @@
-# punctuation mark -> spoken Lithuanian name.  Read when Gintaras(read_punctuation=True).
-# OFF by default: a screen reader speaks punctuation itself per the user's verbosity setting.
-# Format: <punctuation char><TAB><spoken text>.  Edit freely; delete a line to stop naming it.
-‾	brūkšnys viršuje
-‐	brūkšnelis
-–	brūkšnys
-—	ilgas brūkšnys
-―	horizontalus brūkšnys
-・	katakana vidurinis taškas
-،	arabų k. kablelis
-、	ideografinis kablelis
+# Symbol char  ->  spoken Lithuanian name.  THE SINGLE place every symbol name lives.
+# Used by three paths in symbols.py (none of them hardcodes a name -- they all look it up here):
+#   1. decimal rule        ','/'.' between two digits   -> "kablelis" / "taškas"   ('2,5' -> 'du kablelis penki')
+#   2. inter-letter rule   '.'/'*'/'@' glued in a word  -> name                    ('lrt.lt' -> 'lrt taškas lt')
+#   3. ISOLATED-symbol read a lone mark typed / deleted / navigated to -> name, but ONLY when the host turns
+#                          read_punctuation ON.  PROSE punctuation is ALWAYS left to the screen reader.
+# Format: <char><TAB><spoken text>.  Edit freely; delete a line to stop naming that symbol.
+.	taškas
+,	kablelis
+;	kabliataškis
+:	dvitaškis
+!	šauktukas
+?	klaustukas
+'	apostrofa
+"	kabutė
+`	kirtis
+*	žvaig
+@	eta
+#	numeris
+$	doleris
+%	proc
+^	laipsnis
+&	end
+(	skliaus at
+)	skliaus už
+[	lauž at
+]	lauž už
+{	ries at
+}	ries už
+<	mažiau
+>	daugiau
+/	slęš
+\	bekslęš
+|	vertikalė
+~	bangelė
+-	brukš
+_	pabraukimas
++	plius
+=	lygu
+°	laipsniai
+€	euras
+–	en brukš
+—	em brukš
+…	daugtaškis
 ¡	apverstas šauktukas
 ¿	apverstas klaustukas
-؟	arabų k. klaustukas
-‽	klaustukas ir šauktukas
-…	daugtaškis
-。	ideografinis taškas
-·	interpunktas
-‘	kairysis apostrofas
-’	dešinysis apostrofas
-‚	apatinis dešinysis apostrofas
-“	kairiosios kabutės
-”	dešiniosios kabutės
-„	apatinės dešiniosios kabutės
-«	atidaromosios laužtinės kabutės
-»	uždaromosios laužtinės kabutės
-〈	atidaromasis kampinis skliaustas
-〉	uždaromasis kampinis skliaustas
-《	atidaromasis dvigubas kampinis skliaustas
-》	uždaromasis dvigubas kampinis skliaustas
-「	atidaromasis pusinio kampo skliaustas
-」	uždaromasis pusinio kampo skliaustas
-『	atidaromasis tuščiavidurio pusinio kampo skliaustas
-』	uždaromasis tuščiavidurio pusinio kampo skliaustas
-【	atidaromasis juodo lęšio formos skliaustas
-】	uždaromasis juodo lęšio formos skliaustas
-〔	atidaromasis vėžlio kiauto formos skliaustas
-〕	uždaromasis vėžlio kiauto formos skliaustas
-〖	atidaromasis tuščiaviduris lęšio formos skliaustas
-〗	uždaromasis tuščiaviduris lęšio formos skliaustas
-/	pasvirasis brūkšnys
-\	įžambus kairinis brūkšnys
-†	kryžiaus ženklas
-‡	dvigubas kryžiaus ženklas
-•	ženklelis
-‧	kėlimo brūkšnelis
-′	pagrindinis simbolis
-″	dvigubas pagrindinis simbolis
-‴	trigubas pagrindinis simbolis
-‸	stogelis
-※	atskaitos žyma
-⁂	asterizmas
-`	kairinis kirtis
-´	dešininis kirtis
-^	stogelis
-¨	diarė
-‼	du šauktukai
-⁉	šauktukas ir klaustukas
-〰	vingiuotas brūkšnys
-〽	dalių apkeitimo ženklas

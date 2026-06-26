@@ -147,11 +147,23 @@ internal object Transcribe {
      * 2) OOV -> Accent.accent() + Render.render() (the ported pipeline).
      * Falls back to a rule-based g2p only if the renderer errors.
      */
+    // Letters the engine speaks: ASCII a-z + the Lithuanian-specific letters (both cases). Anything else is a
+    // foreign letter and is DROPPED (silent) by dropForeign, so e.g. ß/ı/ſ aren't voiced via uppercase()'s
+    // ß->"SS"/ı->"I" expansion. Cyrillic/Latvian are converted to names in Symbols.expand before transcribe.
+    private val RECOGNIZED_LETTERS =
+        ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" + "ąčęėįšųūž" + "ĄČĘĖĮŠŲŪŽ").toSet()
+
+    private fun dropForeign(word: String): String {
+        if (word.all { !it.isLetter() || it in RECOGNIZED_LETTERS }) return word   // fast path: bit-exact
+        return word.filter { !it.isLetter() || it in RECOGNIZED_LETTERS }
+    }
+
     fun transcribe(word: String): List<String> {
+        val w = dropForeign(word)                  // non-Lithuanian/non-ASCII letters -> silent
         // VOWELLESS word -> spell letter names as phonemes (engine lexicon hit preferred)
-        val sp = Spell.spellOut(word) { loadLex()[it] }
+        val sp = Spell.spellOut(w) { loadLex()[it] }
         if (sp != null) return sp
-        var w2 = xqNormalize(word)
+        var w2 = xqNormalize(w)
         var wl = w2.lowercase()
         // exact lexicon hit
         loadLex()[wl]?.let { return it }

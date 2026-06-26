@@ -4,8 +4,10 @@ import java.util.regex.Pattern
 
 // Kotlin port of lt_tts/symbols.py
 // Optional symbol reading: emoji, punctuation, Cyrillic, Latvian-unique letters.
-// emoji.tsv and punct.tsv share one flat `<char><TAB><text>` format and matcher; split into two files only
-// so the host can toggle them independently (emoji is content, punctuation a screen reader usually names).
+// punct.tsv is the SINGLE symbol-name table -- the decimal, inter-letter and isolated-symbol rules all look
+// names up there (the code holds only the RULE, never the spoken word). readPunctuation does NOT name prose:
+// punctuation in running text is always left to the screen reader; it only decides whether a LONE symbol
+// (typed / deleted / navigated to) is spoken by name. emoji.tsv shares the same flat `<char><TAB><text>` format.
 
 internal object Symbols {
 
@@ -23,7 +25,8 @@ internal object Symbols {
     // A run with two or more separators is a date/time/thousands group (2026.06.12, 21:20, 1,234,567), NOT a
     // decimal -- left untouched so the normal punctuation step turns those inter-digit separators into gaps.
     private val DECIMAL_RUN = Regex("\\d+(?:[.,:]\\d+)+")
-    private val DECIMAL_WORD = mapOf(',' to "kablelis", '.' to "taškas")
+    // WHICH inter-digit separators are decimal marks (the RULE; the spoken NAME comes from punct.tsv via name()).
+    private val DECIMAL_SEPS = setOf(',', '.')
 
     // Always-read symbols (espeak-style), independent of the punctuation setting (number/identifier
     // formatting, not prose punctuation): a '-' before a digit and not preceded by a letter/digit is a
@@ -32,14 +35,29 @@ internal object Symbols {
     // and a '-' after a digit ('2026-06-12') is not a minus. UNICODE_CHARACTER_CLASS so \W/\d treat
     // Lithuanian letters (ą č ę ...) as letters, matching Python's re defaults.
     private val MINUS_RE = Pattern.compile("(?<![^\\W_])-(?=\\d)", Pattern.UNICODE_CHARACTER_CLASS).toRegex()
+    // '.'/'*'/'@' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
     private val INLETTER_RE = Pattern.compile("(?<=[^\\W\\d_])([.*@])(?=[^\\W\\d_])", Pattern.UNICODE_CHARACTER_CLASS).toRegex()
-    private val INLETTER_WORD = mapOf('.' to "taškas", '*' to "žvaigždutė", '@' to "eta")
+
+    /** Spoken Lithuanian name for a single symbol char, from the ONE table punct.tsv; "" if not listed. The
+     *  decimal / inter-letter / isolated rules all draw names from here -- no rule hardcodes a spoken word. */
+    private fun name(ch: Char): String = loadMap("punct.tsv").first[ch.toString()] ?: ""
+
+    /** Name every symbol in an ALL-SYMBOL input (no letters/digits) from punct.tsv: a lone '.' -> "taškas",
+     *  a run "->" -> each char named, space-joined. Unknown chars kept; whitespace dropped. Used only when
+     *  readPunctuation is on -- prose (anything with a letter or digit) never reaches here. */
+    private fun nameIsolated(text: String): String {
+        val map = loadMap("punct.tsv").first
+        return text.filter { !it.isWhitespace() }
+            .map { ch -> map[ch.toString()] ?: ch.toString() }
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+    }
 
     /** Speak a leading-minus before a digit and a '.'/'*'/'@' glued between two letters. Runs BEFORE the
      *  punctuation step so these are spoken even with punctuation reading off. */
     private fun readSymbols(text: String): String {
         var t = MINUS_RE.replace(text, "minus ")
-        t = INLETTER_RE.replace(t) { m -> " " + INLETTER_WORD.getValue(m.groupValues[1][0]) + " " }
+        t = INLETTER_RE.replace(t) { m -> val nm = name(m.groupValues[1][0]); if (nm.isNotEmpty()) " $nm " else m.value }
         return t
     }
 
@@ -52,7 +70,7 @@ internal object Symbols {
         return DECIMAL_RUN.replace(text) { m ->
             val run = m.value
             val seps = run.filter { it == '.' || it == ',' || it == ':' }
-            val w = if (seps.length == 1) DECIMAL_WORD[seps[0]] else null
+            val w = if (seps.length == 1 && seps[0] in DECIMAL_SEPS) name(seps[0]).ifEmpty { null } else null
             if (w != null) {
                 val i = run.indexOf(seps[0])
                 run.substring(0, i) + " " + w + " " + run.substring(i + 1)
@@ -209,13 +227,15 @@ internal object Symbols {
         val ts = readSymbols(t)
         if (ts != t) { t = ts; changed = true }
 
-        // Punctuation runs FIRST and on the ORIGINAL text. readPunctuation=true names the punct.tsv marks;
-        // the default (false) strips punctuation BEFORE the emoji pass, so stray quotes/brackets never reach
-        // the word pipeline and a screen reader's own punctuation setting decides whether the user hears them.
-        // Naming punct before emoji keeps the quote chars INSIDE an emoji's name literal (never re-named).
-        if (readPunctuation) {
-            val (nt, c) = subMap(t, "punct.tsv")
-            t = nt; changed = changed || c
+        // Punctuation policy: PROSE punctuation is ALWAYS left to the screen reader -- the engine never names
+        // '.'/','/etc. inside running text, it only strips residual marks. readPunctuation governs ONLY an
+        // ISOLATED symbol -- a lone mark with no letter and no digit (typed / deleted / navigated to): on ->
+        // say its name from punct.tsv; off -> leave it to the host too (strip). Matches lt_tts symbols.py.
+        val trimmed = t.trim()
+        val isolated = trimmed.isNotEmpty() && trimmed.none { it.isLetter() || it.isDigit() }
+        if (readPunctuation && isolated) {
+            val named = nameIsolated(t)
+            if (named.isNotEmpty() && named != t) { t = named; changed = true }
         } else {
             val t2 = stripPunct(t)
             if (t2 != t) { t = t2; changed = true }

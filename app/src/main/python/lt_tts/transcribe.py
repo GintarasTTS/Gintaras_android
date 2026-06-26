@@ -198,6 +198,23 @@ def _iou_hiatus(word):
     return "".join(out)
 
 
+_RECOGNIZED_LETTERS = (set("abcdefghijklmnopqrstuvwxyz") | set("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                       | set("ąčęėįšųūž") | set("ĄČĘĖĮŠŲŪŽ"))
+
+
+def _drop_foreign(word):
+    """Drop any LETTER that is not Lithuanian or ASCII a-z, so a non-Lithuanian letter (ß, ı, ſ, ø, ñ, Greek,
+    Arabic, ...) is SILENT instead of being voiced as a stray sound -- e.g. Python's `.upper()` in the render
+    path expands ß->'SS', ı->'I', ſ->'S', which used to read aloud. Non-letters (digits, '-', spaces, ...) pass
+    through untouched. Cyrillic/Latvian letters are converted to their spoken NAMES in symbols.expand (when
+    those features are on) BEFORE transcribe runs, so this only silences genuinely unsupported letters. The
+    fast path returns the input unchanged when it has no foreign letter (the overwhelming case), so every
+    Lithuanian/ASCII word stays byte-for-byte identical."""
+    if all((not ch.isalpha()) or ch in _RECOGNIZED_LETTERS for ch in word):
+        return word
+    return "".join(ch for ch in word if (not ch.isalpha()) or ch in _RECOGNIZED_LETTERS)
+
+
 def transcribe(word):
     """Full token list with leading/trailing '_'. Two tiers, both transcr4-faithful:
        1) exact lexicon hit -> transcr4's own accented tokens (bit-exact, incl. stress);
@@ -206,6 +223,7 @@ def transcribe(word):
           156-rule g2p+casing table (sub_1000aec0). Bit-exact vs KircTranskr for ~96% of words
           (the residual is the not-yet-ported FOREIGN accent path; renderer itself is 99.9%).
     Falls back to the rule-based g2p only if the ported renderer errors."""
+    word = _drop_foreign(word)                     # non-Lithuanian/non-ASCII letters -> silent (see above)
     sp = _spell_out(word)                          # VOWELLESS word (lt/cd/km) -> spelled letter names
     if sp is not None:
         return sp

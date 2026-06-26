@@ -6,13 +6,17 @@ data files drive it, each individually switchable; a missing/disabled file leave
 core engine never depends on them.
 
     data/emoji.tsv     <emoji char(s)><TAB><spoken text>          (read_emoji)
-    data/punct.tsv     <punctuation char><TAB><spoken text>       (read_punctuation)
+    data/punct.tsv     <symbol char><TAB><spoken text>           (the SINGLE symbol-name table; see below)
     data/cyrillic.tsv  two blocks [names] / [sounds], per letter   (read_cyrillic)
     data/latvian.tsv   two blocks [names] / [sounds], per letter   (read_latvian; Latvian-UNIQUE letters only)
 
-emoji.tsv and punct.tsv share the same flat `<char><TAB><text>` format and the same matcher; they are split
-into two files only so the host can toggle them independently (an emoji is content, punctuation is what a
-screen reader usually names itself). LETTER reading (cyrillic/latvian) has two modes, exactly like a Lithuanian
+punct.tsv is the ONE place every symbol name lives -- the decimal rule (','/'.' between digits), the
+inter-letter rule ('.'/'*'/'@' inside an identifier) and the isolated-symbol reader all look their names up
+there (the code holds only the RULE -- which chars fire -- never the spoken word), so a port just reads the
+file. read_punctuation does NOT name prose: punctuation inside running text is ALWAYS left to the screen
+reader (it names it per the user's verbosity setting); read_punctuation only decides whether a LONE symbol
+the user typed / deleted / navigated to is spoken by name. emoji.tsv shares the same flat `<char><TAB><text>`
+format and matcher. LETTER reading (cyrillic/latvian) has two modes, exactly like a Lithuanian
 letter (ą = "a nosinė" when typed, a long /a:/ in a word):
   * a letter TYPED ON ITS OWN (a single isolated letter) -> its NAME      (б -> "bė",  я -> "ja")
   * a letter INSIDE a word                              -> its SOUND      (б -> "b",   я -> "ja")
@@ -27,12 +31,14 @@ from . import paths
 READ_EMOJI = True
 READ_CYRILLIC = True
 READ_LATVIAN = True
-READ_PUNCTUATION = False        # OFF by default: a screen reader (NVDA/TalkBack) expands punctuation into
-                                # words ITSELF according to the user's punctuation-verbosity setting, so the
-                                # engine must stay silent on punctuation (like every mainstream TTS) -- naming
-                                # it here made quotes etc. ALWAYS spoken regardless of the SR setting. True
-                                # names the punct.tsv marks (quotes/dashes/brackets) for hosts without their own
-                                # punctuation processing.
+READ_PUNCTUATION = False        # OFF by default. Governs ISOLATED symbols ONLY -- a lone mark the user typed /
+                                # deleted / navigated to (input with no letter and no digit): True -> speak its
+                                # Lithuanian name from punct.tsv ('.' -> "taškas"); False -> leave it to the host
+                                # (the screen reader names it per its verbosity setting). PROSE punctuation is
+                                # ALWAYS left to the screen reader regardless of this flag -- the engine never
+                                # names '.'/','/etc. inside running text, it only strips residual marks. (Expose
+                                # this as a "read punctuation" checkbox on a SAPI host that has no screen reader;
+                                # NVDA/TalkBack/VoiceOver hosts keep it OFF and let their own setting decide.)
 
 # clause delimiters that drive pauses / the question contour -- never stripped
 _DELIMS = set(u".,;:!?—")
@@ -46,7 +52,8 @@ _PUNCT_KEEP = set(u"%‰§¶&#°")
 # separators is a date / time / thousands group (2026.06.12, 21:20, 1,234,567), NOT a decimal -- it is
 # left untouched so the normal punctuation step turns those inter-digit separators into word gaps.
 _DECIMAL_RUN = re.compile(r"\d+(?:[.,:]\d+)+")
-_DECIMAL_WORD = {u",": u"kablelis", u".": u"taškas"}
+# WHICH inter-digit separators are decimal marks (the RULE; the spoken NAME comes from punct.tsv via _name()).
+_DECIMAL_SEPS = (u",", u".")
 
 # Always-read symbols (espeak-style text normalization), independent of the punctuation-verbosity setting:
 #   * a '-' directly before a digit, at the start of the text or after a space, is a MINUS sign:
@@ -57,8 +64,8 @@ _DECIMAL_WORD = {u",": u"kablelis", u".": u"taškas"}
 # preceded by a digit ('2026-06-12') is not a minus either. Letters = Unicode letters (incl. ą č ę ...),
 # so a separator between DIGITS never triggers the inter-letter rule (decimals/dates are handled above).
 _MINUS_RE = re.compile(r"(?<![^\W_])-(?=\d)")        # '-' before a digit, NOT preceded by a letter/digit
+# '.'/'*'/'@' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
 _INLETTER_RE = re.compile(r"(?<=[^\W\d_])([.*@])(?=[^\W\d_])")
-_INLETTER_WORD = {u".": u"taškas", u"*": u"žvaigždutė", u"@": u"eta"}
 
 _MAPS = {}                      # filename -> (dict, compiled-regex|None); cached per file
 _LETTERS = {}                   # filename -> {'names': {ch:txt}, 'sounds': {ch:txt}}  (None inside = absent)
@@ -84,6 +91,24 @@ def _load_map(filename):
               if table else None)
         _MAPS[filename] = (table, rx)
     return _MAPS[filename]
+
+
+def _name(ch):
+    """Spoken Lithuanian name for a single symbol char, from the ONE symbol table (punct.tsv); '' if not
+    listed. The single source the decimal / inter-letter / isolated rules all draw names from -- no rule
+    hardcodes a spoken word, so a port reads every name from the file."""
+    table, _rx = _load_map("punct.tsv")
+    return table.get(ch, u"")
+
+
+def _name_isolated(text):
+    """Name every symbol in an ALL-SYMBOL input (no letters, no digits) from punct.tsv: a lone '.' typed /
+    deleted / navigated to -> "taškas"; a run like "->" -> each char named, space-joined. Unknown chars are
+    kept as-is (an emoji then falls through to the emoji pass); whitespace is dropped. Used only when
+    read_punctuation is ON -- prose (anything with a letter or digit) never reaches here."""
+    table, _rx = _load_map("punct.tsv")
+    parts = [table.get(ch, ch) for ch in text if not ch.isspace()]
+    return u" ".join(p for p in parts if p)
 
 
 def _load_letters(filename):
@@ -157,9 +182,11 @@ def _read_decimals(text):
     def repl(m):
         run = m.group(0)
         seps = re.findall(r"[.,:]", run)
-        if len(seps) == 1 and seps[0] in _DECIMAL_WORD:
-            i = run.index(seps[0])
-            return run[:i] + u" " + _DECIMAL_WORD[seps[0]] + u" " + run[i + 1:]
+        if len(seps) == 1 and seps[0] in _DECIMAL_SEPS:
+            name = _name(seps[0])
+            if name:
+                i = run.index(seps[0])
+                return run[:i] + u" " + name + u" " + run[i + 1:]
         return run
     return _DECIMAL_RUN.sub(repl, text)
 
@@ -169,7 +196,8 @@ def _read_symbols(text):
     ('lrt.lt' -> 'lrt taškas lt'). Runs BEFORE the punctuation step, so these are spoken even with punctuation
     reading off. See _MINUS_RE / _INLETTER_RE for the exact (espeak-style) contexts."""
     text = _MINUS_RE.sub(u"minus ", text)
-    text = _INLETTER_RE.sub(lambda m: u" " + _INLETTER_WORD[m.group(1)] + u" ", text)
+    text = _INLETTER_RE.sub(lambda m: (u" " + _name(m.group(1)) + u" ") if _name(m.group(1)) else m.group(0),
+                            text)
     return text
 
 
@@ -208,11 +236,10 @@ def expand(text, read_emoji=None, read_cyrillic=None, read_latvian=None, read_pu
     features and missing files are skipped. A NO-OP (returns the input unchanged) when nothing matches, so
     normal Lithuanian text is never altered.
 
-    Punctuation runs FIRST and on the ORIGINAL text: read_punctuation=True names the punct.tsv marks; the
-    default (False) strips punctuation BEFORE the emoji pass, so stray quotes/brackets never reach the word
-    pipeline and a screen reader's own punctuation setting decides whether the user hears them. Naming punct
-    before emoji also keeps the quote chars INSIDE an emoji's name (🅰 -> 'mygtukas „A“') literal, never
-    re-named -- matching the old single-pass behavior."""
+    Punctuation runs BEFORE the emoji pass: a lone symbol (text with no letter/digit) is named from punct.tsv
+    when read_punctuation=True, otherwise punctuation is STRIPPED so stray quotes/brackets never reach the word
+    pipeline and the screen reader's own punctuation setting decides whether the user hears prose marks. Prose
+    is never named here -- only isolated symbols are, and only when the flag is on (see READ_PUNCTUATION)."""
     re_e = READ_EMOJI if read_emoji is None else read_emoji
     re_c = READ_CYRILLIC if read_cyrillic is None else read_cyrillic
     re_l = READ_LATVIAN if read_latvian is None else read_latvian
@@ -233,11 +260,19 @@ def expand(text, read_emoji=None, read_cyrillic=None, read_latvian=None, read_pu
         text = t2
         changed = True
 
-    if re_p:
-        text, c = _sub_map(text, "punct.tsv")     # name quotes/dashes/brackets/...
-        changed = changed or c
+    # Punctuation policy (user decision 2026-06-25): PROSE punctuation is ALWAYS left to the screen reader --
+    # the engine never names '.'/','/etc. inside running text, it only strips residual marks. read_punctuation
+    # governs ONLY an ISOLATED symbol -- a lone mark the user typed / deleted / navigated to (text with no
+    # letter and no digit): ON -> say its name from punct.tsv; OFF -> leave it to the host too (strip).
+    stripped = text.strip()
+    isolated = bool(stripped) and not any(c.isalpha() or c.isdigit() for c in stripped)
+    if re_p and isolated:
+        named = _name_isolated(text)              # lone symbol -> its Lithuanian name (unknown char kept)
+        if named and named != text:
+            text = named
+            changed = True
     else:
-        t2 = _strip_punct(text)                   # skip punctuation (the screen reader names it itself)
+        t2 = _strip_punct(text)                   # prose / off: skip punctuation (the screen reader names it)
         if t2 != text:
             text = t2
             changed = True
