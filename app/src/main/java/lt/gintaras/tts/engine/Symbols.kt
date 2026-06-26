@@ -20,6 +20,11 @@ internal object Symbols {
     // §3, A&B, #1, 20°) -- kept spoken even with punctuation off (they live in emoji.tsv, not punct.tsv)
     private val PUNCT_KEEP = setOf('%', '‰', '§', '¶', '&', '#', '°')
 
+    // A run of 3+ identical emoji typed in a row collapses to "<count> <name>" ('😢😢😢😢😢' -> '5 verkiantis
+    // veidas', spoken "penki verkiantis veidas" after the numerals pass) instead of repeating the name N times.
+    // 1-2 in a row are read in full; the name stays singular (grammar-free); only adjacent identical units join.
+    private const val EMOJI_RUN_MIN = 3
+
     // Decimal separator naming (espeak-style): a comma/period DIRECTLY between two digit groups is a decimal
     // mark and is SPOKEN, '2,5' -> '2 kablelis 5' -> "du kablelis penki" (fraction read as a whole number).
     // A run with two or more separators is a date/time/thousands group (2026.06.12, 21:20, 1,234,567), NOT a
@@ -145,11 +150,32 @@ internal object Symbols {
         return result
     }
 
-    /** Replace every key of `filename`'s table found in `text` with its spoken text (space-padded). */
-    private fun subMap(text: String, filename: String): Pair<String, Boolean> {
-        val (map, re) = loadMap(filename)
+    /** Replace every emoji with its spoken name (space-padded), collapsing a run of EMOJI_RUN_MIN+ identical
+     *  adjacent emoji to "<count> <name>" ('😢😢😢😢😢' -> '5 verkiantis veidas'; the numerals pass speaks the
+     *  count, the name stays singular). 1-2 in a row read in full; 😀😢 stays "name name". */
+    private fun subEmoji(text: String): Pair<String, Boolean> {
+        val (map, re) = loadMap("emoji.tsv")
         if (re == null || !re.containsMatchIn(text)) return Pair(text, false)
-        return Pair(re.replace(text) { " ${map[it.value]} " }, true)
+        val matches = re.findAll(text).toList()
+        val out = StringBuilder()
+        var pos = 0
+        var i = 0
+        while (i < matches.size) {
+            val m = matches[i]
+            out.append(text.substring(pos, m.range.first))
+            val key = m.value
+            var j = i                              // extend the run while the next match is the SAME glyph, adjacent
+            while (j + 1 < matches.size && matches[j + 1].value == key &&
+                   matches[j + 1].range.first == matches[j].range.last + 1) j++
+            val count = j - i + 1
+            val name = map[key]
+            if (count >= EMOJI_RUN_MIN) out.append(" $count $name ")
+            else repeat(count) { out.append(" $name ") }
+            pos = matches[j].range.last + 1
+            i = j + 1
+        }
+        out.append(text.substring(pos))
+        return Pair(out.toString(), true)
     }
 
     private fun loadLetters(filename: String): Map<String, Map<String, String>>? {
@@ -242,7 +268,7 @@ internal object Symbols {
         }
 
         if (readEmoji) {
-            val (nt, c) = subMap(t, "emoji.tsv")
+            val (nt, c) = subEmoji(t)
             t = nt; changed = changed || c
         }
 

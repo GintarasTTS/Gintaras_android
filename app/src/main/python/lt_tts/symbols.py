@@ -138,14 +138,44 @@ def _load_letters(filename):
     return blocks
 
 
+# A run of THREE OR MORE identical emoji typed in a row is collapsed to "<count> <name>" instead of repeating
+# the name N times ('😢😢😢😢😢' -> '5 verkiantis veidas', spoken "penki verkiantis veidas" after the numerals
+# pass). 1-2 in a row are still read out in full. The count is a digit string (the numerals pass speaks it);
+# the name stays SINGULAR -- the cheap, grammar-free form, no Lithuanian noun-concord. Only adjacent identical
+# units collapse (😀😢 stays "name name"). Audible only where the engine itself names emoji (VoiceOver emoji
+# off, SAPI ReadEmoji on, JAWS); under a reader that names emoji itself it never sees the raw glyphs.
+_EMOJI_RUN_MIN = 3
+
+
 # ---- substitution helpers ------------------------------------------------------------------------------------
-def _sub_map(text, filename):
-    """Replace every key of `filename`'s table found in `text` with its spoken text (space-padded so it reads as
-    a separate token). Returns (new_text, changed). A no-op when the table is empty or nothing matches."""
-    table, rx = _load_map(filename)
+def _sub_emoji(text):
+    """Replace every emoji in `text` with its spoken name (space-padded so it reads as a separate token),
+    collapsing a run of `_EMOJI_RUN_MIN`+ identical adjacent emoji to "<count> <name>". Returns
+    (new_text, changed). A no-op when the table is empty or nothing matches."""
+    table, rx = _load_map("emoji.tsv")
     if rx is None or not rx.search(text):
         return text, False
-    return rx.sub(lambda m: " " + table[m.group(0)] + " ", text), True
+    matches = list(rx.finditer(text))
+    out = []
+    pos = 0
+    i, n = 0, len(matches)
+    while i < n:
+        m = matches[i]
+        out.append(text[pos:m.start()])
+        key = m.group(0)
+        j = i                                     # extend the run while the next match is the SAME glyph, adjacent
+        while j + 1 < n and matches[j + 1].group(0) == key and matches[j + 1].start() == matches[j].end():
+            j += 1
+        count = j - i + 1
+        name = table[key]
+        if count >= _EMOJI_RUN_MIN:
+            out.append(" " + str(count) + " " + name + " ")
+        else:
+            out.append((" " + name + " ") * count)
+        pos = matches[j].end()
+        i = j + 1
+    out.append(text[pos:])
+    return "".join(out), True
 
 
 def _strip_punct(text):
@@ -278,7 +308,7 @@ def expand(text, read_emoji=None, read_cyrillic=None, read_latvian=None, read_pu
             changed = True
 
     if re_e:
-        text, c = _sub_map(text, "emoji.tsv")
+        text, c = _sub_emoji(text)
         changed = changed or c
 
     if re_c and _CYR_RE.search(text):
