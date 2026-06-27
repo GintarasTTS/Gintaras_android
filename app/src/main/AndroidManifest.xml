@@ -36,12 +36,20 @@
             android:label="@string/general_settings"
             android:exported="true" />
 
-        <!-- TTS service — the core synthesis engine (pure-Kotlin lt_tts port). -->
+        <!--
+            TTS service — the core synthesis engine (pure-Kotlin lt_tts port).
+            directBootAware: available BEFORE first unlock (Direct Boot), so Gintaras can speak the
+            lock screen during boot (PIN/pattern entry) when TalkBack binds to it -- the same way the
+            Google TTS engine works there. Safe because the engine reads ALL its data from APK assets
+            (accessible in Direct Boot); it never touches credential-protected storage (no
+            SharedPreferences / files in the service or engine path). The engine still warms up on
+            first bind (the onCreate warm-up thread), which works against assets in Direct Boot too.
+        -->
         <service
             android:name=".GintarasTtsService"
             android:label="@string/tts_engine_name"
             android:exported="true"
-            android:directBootAware="false">
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.TTS_SERVICE" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -51,10 +59,13 @@
                 android:resource="@xml/tts_service" />
         </service>
 
-        <!-- Reports bundled voices to the TTS framework (CHECK_TTS_DATA). -->
+        <!-- Reports bundled voices to the TTS framework (CHECK_TTS_DATA). directBootAware so the
+             framework can validate the engine's voices during Direct Boot (returns a static result
+             + a string resource only — no credential-protected storage). -->
         <activity
             android:name=".CheckVoiceData"
             android:theme="@android:style/Theme.NoDisplay"
+            android:directBootAware="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.speech.tts.engine.CHECK_TTS_DATA" />
