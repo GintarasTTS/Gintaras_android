@@ -48,28 +48,36 @@ internal object Transcribe {
         "traktorius","transformacija","trofėjus","vokalas","zoologija"
     )
 
-    // Lexicon: lowercase word -> token list (loaded from lt_lex.tsv)
-    @Volatile private var lex: Map<String, List<String>>? = null
+    // Lexicon: lowercase word -> RAW token string (loaded from lt_lex.tsv). Stored unsplit and split
+    // on demand by lexTokens() -- ~60k entries with several tokens each would otherwise hold hundreds
+    // of thousands of boxed String + ArrayList objects (the 1.9 MB file ballooned to ~75 MB on the
+    // Java heap, the main OOM contributor on low-heap devices). The raw value keeps one String per
+    // entry; only the looked-up entry is split (a rare hit), so the result is byte-identical.
+    @Volatile private var lex: Map<String, String>? = null
+    private val WS = Regex("\\s+")
 
-    private fun loadLex(): Map<String, List<String>> {
+    private fun loadLex(): Map<String, String> {
         lex?.let { return it }
         synchronized(this) {
             lex?.let { return it }
-            val map = mutableMapOf<String, List<String>>()
+            val map = HashMap<String, String>(1 shl 16)
             try {
                 val lines = Assets.lines("lt_lex.tsv", CP1257)
                 for (line in lines) {
                     val l = line.trimEnd('\r', '\n')
                     if ('\t' !in l) continue
                     val idx = l.indexOf('\t')
-                    val k = l.substring(0, idx)
-                    val v = l.substring(idx + 1).split(Regex("\\s+")).filter { it.isNotEmpty() }
-                    map[k] = v
+                    map[l.substring(0, idx)] = l.substring(idx + 1)
                 }
             } catch (_: Exception) {}
             return map.also { lex = it }
         }
     }
+
+    /** Token list for an exact lexicon word, or null. Splits the raw value lazily -- identical to the
+     *  old eager `split(\s+).filter{notEmpty}` but only for the single entry actually looked up. */
+    private fun lexTokens(word: String): List<String>? =
+        loadLex()[word]?.split(WS)?.filter { it.isNotEmpty() }
 
     /** x->ks, q->k, w->v (the engine's phonetic value for these non-LT letters; w per the
      *  ruleslt.rul `Dw v` digraph rule: windows -> vindovs). A STANDALONE letter is spelled by
@@ -161,16 +169,16 @@ internal object Transcribe {
     fun transcribe(word: String): List<String> {
         val w = dropForeign(word)                  // non-Lithuanian/non-ASCII letters -> silent
         // VOWELLESS word -> spell letter names as phonemes (engine lexicon hit preferred)
-        val sp = Spell.spellOut(w) { loadLex()[it] }
+        val sp = Spell.spellOut(w) { lexTokens(it) }
         if (sp != null) return sp
         var w2 = xqNormalize(w)
         var wl = w2.lowercase()
         // exact lexicon hit
-        loadLex()[wl]?.let { return it }
+        lexTokens(wl)?.let { return it }
         w2 = iHiatus(w2)                       // OOV word-initial i+vowel: ios -> iios (see iHiatus)
         w2 = iouHiatus(w2)                      // OOV mid-word "iou": previous/serious keep the i (see iouHiatus)
         wl = w2.lowercase()
-        loadLex()[wl]?.let { return it }       // the doubled form may itself be a lexicon word
+        lexTokens(wl)?.let { return it }       // the doubled form may itself be a lexicon word
         // accent + render (the ported DLL pipeline)
         return try {
             val stress = Accent.accent(w2)
