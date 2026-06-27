@@ -1,10 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+        largeHeap: the engine loads ~8 MB of lexicons + voice data (main_lexicon.json 2.4 MB,
+        stem_lexicon 0.9 MB, lt_lex.tsv 1.9 MB, gintaras.dta 3.8 MB) plus a large emoji-alternation
+        regex into RAM. The live object graph needs >64 MB; on budget/older devices the default
+        per-app heap (48–64 MB) is smaller than that, so loading threw OutOfMemoryError — an Error,
+        NOT caught by the service's try/catch — crashing the process ("Gintaras TTS stopped") and
+        leaving the engine silent. largeHeap raises the limit (device max, typically 128–512 MB).
+    -->
     <application
         android:name=".GintarasApp"
         android:allowBackup="false"
         android:label="@string/app_name"
+        android:largeHeap="true"
         android:theme="@style/Theme.Gintaras"
         android:extractNativeLibs="true">
 
@@ -27,7 +36,7 @@
             android:label="@string/general_settings"
             android:exported="true" />
 
-        <!-- TTS service — the core synthesis engine (Python / Chaquopy). -->
+        <!-- TTS service — the core synthesis engine (pure-Kotlin lt_tts port). -->
         <service
             android:name=".GintarasTtsService"
             android:label="@string/tts_engine_name"

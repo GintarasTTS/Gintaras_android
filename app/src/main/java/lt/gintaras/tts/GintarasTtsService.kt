@@ -32,7 +32,10 @@ class GintarasTtsService : TextToSpeechService() {
             try {
                 lt.gintaras.tts.engine.Voice.load()
                 Log.i(TAG, "Engine warm-up complete")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Throwable (not just Exception): loading the lexicons/voice can throw
+                // OutOfMemoryError on a low-heap device -- an Error would otherwise escape this
+                // background thread and crash the whole process ("Gintaras TTS stopped").
                 Log.w(TAG, "Engine warm-up failed", e)
             } finally {
                 warmupLatch.countDown()
@@ -82,7 +85,10 @@ class GintarasTtsService : TextToSpeechService() {
                 val samples = engine.synthPcm(piece, rate = rate, pitch = pitch)
                 streamBytes(samplesToBytes(samples), callback) ?: run { callback.done(); return }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable (not just Exception): synthesis can hit OutOfMemoryError on a low-heap
+            // device. Report the failure to the TTS framework instead of letting an Error crash
+            // the process; the host then falls back gracefully rather than showing a crash dialog.
             Log.e(TAG, "Synthesis error for: $text", e)
             callback.error()
             return
