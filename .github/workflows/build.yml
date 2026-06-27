@@ -51,6 +51,18 @@ jobs:
             exit 1
           fi
 
+      # The parity harness runs on the DESKTOP JVM and cannot catch APIs that exist there but throw on
+      # Android. Pattern.UNICODE_CHARACTER_CLASS is the worst offender: it threw at class init and made
+      # the whole engine silent on-device for days (the harness stayed green). Block it (and raw
+      # Pattern flags) so it can never come back unnoticed -- use \p{L} / [0-9] instead.
+      - name: Guard against Android-incompatible regex APIs
+        run: |
+          if grep -rn "UNICODE_CHARACTER_CLASS" app/src/main/java; then
+            echo "ERROR: Pattern.UNICODE_CHARACTER_CLASS is UNSUPPORTED on Android (throws at class init -> silent engine). Use \\p{L} for letters and [0-9] for digits." >&2
+            exit 1
+          fi
+          echo "OK: no Android-incompatible regex flags"
+
   build:
     name: Build debug + release APKs (pure-Kotlin engine)
     runs-on: ubuntu-latest
