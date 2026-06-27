@@ -4,6 +4,17 @@
 
     <PreferenceCategory
         app:iconSpaceReserved="false"
+        app:title="@string/cat_diag">
+        <Preference
+            android:key="run_diag"
+            android:title="@string/diag_title"
+            android:summary="@string/diag_summary"
+            app:iconSpaceReserved="false"
+            app:singleLineTitle="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
         app:title="@string/cat_about">
         <Preference
             android:title="@string/about_title"

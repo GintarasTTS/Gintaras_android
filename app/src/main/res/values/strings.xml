@@ -18,6 +18,13 @@
     <string name="cat_voice">Balsas</string>
     <string name="cat_speech">Kalbėjimas</string>
 
+    <!-- Diagnostics -->
+    <string name="cat_diag">Diagnostika</string>
+    <string name="diag_title">Paleisti sintezės testą</string>
+    <string name="diag_summary">Patikrina, ar variklis veikia šiame įrenginyje, ir parodo klaidą (jei tyli)</string>
+    <string name="diag_copy">Kopijuoti</string>
+    <string name="diag_close">Uždaryti</string>
+
     <!-- About -->
     <string name="cat_about">Apie</string>
     <string name="about_title">Gintaras TTS</string>
