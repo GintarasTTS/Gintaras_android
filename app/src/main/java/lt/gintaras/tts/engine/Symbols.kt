@@ -1,7 +1,5 @@
 package lt.gintaras.tts.engine
 
-import java.util.regex.Pattern
-
 // Kotlin port of lt_tts/symbols.py
 // Optional symbol reading: emoji, punctuation, Cyrillic, Latvian-unique letters.
 // punct.tsv is the SINGLE symbol-name table -- the decimal, inter-letter and isolated-symbol rules all look
@@ -37,11 +35,15 @@ internal object Symbols {
     // formatting, not prose punctuation): a '-' before a digit and not preceded by a letter/digit is a
     // MINUS ('-15' -> 'minus 15'); a '.'/'*'/'@' glued between two LETTERS is read by name ('lrt.lt' ->
     // 'lrt taškas lt'). A '-' between letters is NOT read (Lithuanian hyphenated words read naturally),
-    // and a '-' after a digit ('2026-06-12') is not a minus. UNICODE_CHARACTER_CLASS so \W/\d treat
-    // Lithuanian letters (ą č ę ...) as letters, matching Python's re defaults.
-    private val MINUS_RE = Pattern.compile("(?<![^\\W_])-(?=\\d)", Pattern.UNICODE_CHARACTER_CLASS).toRegex()
+    // and a '-' after a digit ('2026-06-12') is not a minus.
+    // NB: must NOT use Pattern.UNICODE_CHARACTER_CLASS — that flag is UNSUPPORTED on Android and throws
+    // IllegalArgumentException at class init (ExceptionInInitializerError -> NoClassDefFoundError for
+    // Symbols -> the whole engine went silent on-device). Instead use \p{L} (any Unicode letter,
+    // Lithuanian ą č ę … included, no flag needed) for "letter" and [0-9] for digit -- equivalent to
+    // Python's Unicode \w/\d on our inputs, and verified byte-identical by the parity harness.
+    private val MINUS_RE = Regex("(?<![\\p{L}0-9])-(?=[0-9])")
     // '.'/'*'/'@' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
-    private val INLETTER_RE = Pattern.compile("(?<=[^\\W\\d_])([.*@])(?=[^\\W\\d_])", Pattern.UNICODE_CHARACTER_CLASS).toRegex()
+    private val INLETTER_RE = Regex("(?<=\\p{L})([.*@])(?=\\p{L})")
 
     /** Spoken Lithuanian name for a single symbol char, from the ONE table punct.tsv; "" if not listed. The
      *  decimal / inter-letter / isolated rules all draw names from here -- no rule hardcodes a spoken word. */
