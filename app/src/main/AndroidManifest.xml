@@ -39,7 +39,7 @@
         <!--
             TTS service — the core synthesis engine (pure-Kotlin lt_tts port).
             directBootAware: available BEFORE first unlock (Direct Boot), so Gintaras can speak the
-            lock screen during boot (PIN/pattern entry) when TalkBack binds to it -- the same way the
+            lock screen during boot (PIN/pattern entry) when TalkBack binds to it, the same way the
             Google TTS engine works there. Safe because the engine reads ALL its data from APK assets
             (accessible in Direct Boot); it never touches credential-protected storage (no
             SharedPreferences / files in the service or engine path). The engine still warms up on
