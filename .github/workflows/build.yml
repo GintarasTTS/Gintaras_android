@@ -57,7 +57,11 @@ jobs:
       # Pattern flags) so it can never come back unnoticed -- use \p{L} / [0-9] instead.
       - name: Guard against Android-incompatible regex APIs
         run: |
-          if grep -rn "UNICODE_CHARACTER_CLASS" app/src/main/java; then
+          # Match real usage only, not the explanatory comments that mention the flag by name
+          # (a comment line's content starts with optional whitespace then //).
+          hits=$(grep -rn "UNICODE_CHARACTER_CLASS" app/src/main/java | grep -vE ':[[:space:]]*//' || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
             echo "ERROR: Pattern.UNICODE_CHARACTER_CLASS is UNSUPPORTED on Android (throws at class init -> silent engine). Use \\p{L} for letters and [0-9] for digits." >&2
             exit 1
           fi
