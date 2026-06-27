@@ -11,11 +11,11 @@ android {
         applicationId = "lt.gintaras.tts"
         minSdk        = 21
         targetSdk     = 35
-        // Auto-increment per CI build so every published APK is a newer version than the last
-        // (a fixed versionCode means Android never treats a new APK as an update). Falls back to 1
-        // for local builds. versionName tracks the same number for a human-readable rolling version.
-        versionCode   = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName   = "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+        // Kept at 1 / "1.0" during bug-fixing: with the STABLE signing key below, a same-versionCode
+        // APK still reinstalls over the previous one (equal versionCode + matching signature is allowed;
+        // only a LOWER versionCode is rejected). Bump these when cutting an actual new release.
+        versionCode   = 1
+        versionName   = "1.0"
     }
 
     signingConfigs {
