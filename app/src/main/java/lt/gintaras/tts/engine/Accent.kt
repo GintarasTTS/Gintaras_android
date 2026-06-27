@@ -37,23 +37,23 @@ private val S90cc: Set<Char> = setOf(cp(65), cp(69), cp(79))                    
 
 // ---- Data structures ---------------------------------------------------------------------------
 
-// Verb tables
+// Verb tables. The big stem-lexicon vectors (acc/flag) are IntArray, not boxed List<Int>, to cut heap.
 private data class AccentTables(
     val endings:  List<Pair<String, List<Int>>>,
     val prefixes: List<Pair<String?, List<Int>>>,
-    val stems:    List<Triple<String?, List<Pair<String?, List<Int>>>, List<Int>>>,
+    val stems:    List<Triple<String?, List<Pair<String?, IntArray>>, IntArray>>,
     val cc:       Map<String, Set<Char>>
 )
 
-// Noun tables
+// Noun tables. main_lexicon's per-entry byte vector is IntArray (was List<Int>) to cut heap.
 private data class NounTables(
-    val main: List<Pair<String?, List<Int>>>,
+    val main: List<Pair<String?, IntArray>>,
     val ends: List<Pair<String?, List<Int>>>,
     val bb0:  List<Int>,
     val c60:  List<Int>,
     val da:   List<List<Triple<Int, Int, Int>>>,
     val t17:  List<List<Int>>,
-    val idx:  Map<String, List<Pair<Int, List<Int>>>>  // rev_stem(cp1257 string) -> [(midx, bytes8)]
+    val idx:  Map<String, List<Pair<Int, IntArray>>>  // rev_stem(cp1257 string) -> [(midx, bytes8)]
 )
 
 private data class DllClasses(
@@ -70,11 +70,64 @@ private data class DllClasses(
 @Volatile private var _mainStemb: List<ByteArray>? = null
 @Volatile private var _verbStemb: List<ByteArray>? = null
 @Volatile private var _pfxb: List<ByteArray>? = null
-@Volatile private var _starEntries: List<Triple<ByteArray, ByteArray, List<Int>>>? = null
+@Volatile private var _starEntries: List<Triple<ByteArray, ByteArray, IntArray>>? = null
 
 // ---- JSON helpers ------------------------------------------------------------------------------
 
 private fun JSONArray.toIntList(): List<Int> = (0 until length()).map { getInt(it) }
+
+// Minimal index-based parser for the two BIG lexicon files (main_lexicon.json 2.4 MB,
+// stem_lexicon.json 0.9 MB). org.json builds the whole nested JSONArray graph at once -- a large
+// transient that, together with the boxed result, was the peak that OOM-crashed low-heap devices.
+// These two files have a rigid shape and SIMPLE strings (verified: no \-escapes, no embedded quotes),
+// so we walk the source String with an index and emit compact structures (IntArray, not boxed
+// List<Int>) directly -- no intermediate object graph. The other (small) tables keep org.json.
+private class LexJson(private val s: String) {
+    private var i = 0
+    private val n = s.length
+    private fun ws() { while (i < n && s[i] <= ' ') i++ }
+    private fun err(e: String): Nothing =
+        throw IllegalStateException("lex parse: expected $e at $i near '${s.substring(i, minOf(i + 24, n))}'")
+    private fun ch(c: Char) { ws(); if (i >= n || s[i] != c) err("'$c'"); i++ }
+    /** Before each array element: true (and skip a separating comma) if one remains; at ']' consume it, false. */
+    private fun more(): Boolean { ws(); if (s[i] == ']') { i++; return false }; if (s[i] == ',') { i++; ws() }; return true }
+    private fun str(): String? {
+        ws(); if (s[i] == 'n') { i += 4; return null }       // null
+        if (s[i] != '"') err("string"); i++
+        val st = i; while (s[i] != '"') i++                  // no escapes in these files (verified)
+        val r = s.substring(st, i); i++; return r
+    }
+    private fun ints(): IntArray {
+        ch('['); var a = IntArray(8); var k = 0
+        while (more()) {
+            ws(); val st = i; if (s[i] == '-') i++
+            while (i < n && s[i] in '0'..'9') i++
+            if (k == a.size) a = a.copyOf(a.size * 2)
+            a[k++] = s.substring(st, i).toInt()
+        }
+        return if (k == a.size) a else a.copyOf(k)
+    }
+
+    // main_lexicon.json: [[rev_stem|null, [b0..b7]], ...]
+    fun parseMain(): ArrayList<Pair<String?, IntArray>> {
+        ch('['); val out = ArrayList<Pair<String?, IntArray>>(61000)
+        while (more()) { ch('['); val s0 = str(); ch(','); val b = ints(); ch(']'); out.add(s0 to b) }
+        return out
+    }
+
+    // stem_lexicon.json: [[stem|null, [[field|null,[a0..a3]], ...], [flag0..flag7]], ...]
+    fun parseStems(): ArrayList<Triple<String?, List<Pair<String?, IntArray>>, IntArray>> {
+        ch('['); val out = ArrayList<Triple<String?, List<Pair<String?, IntArray>>, IntArray>>(9000)
+        while (more()) {
+            ch('['); val stem = str(); ch(',')
+            ch('['); val groups = ArrayList<Pair<String?, IntArray>>(3)
+            while (more()) { ch('['); val f = str(); ch(','); val a = ints(); ch(']'); groups.add(f to a) }
+            ch(','); val flag = ints(); ch(']')
+            out.add(Triple(stem, groups, flag))
+        }
+        return out
+    }
+}
 
 // ---- tables() ----------------------------------------------------------------------------------
 
@@ -99,20 +152,8 @@ private fun tables(): AccentTables {
                 s to fl
             }
             // stem_lexicon.json: [[stem_or_null, [[field_or_null, acc4], [f,a4], [f,a4]], flag8], ...]
-            val stemArr = Assets.jsonArray("stem_lexicon.json")
-            val stems = (0 until stemArr.length()).map { i ->
-                val row = stemArr.getJSONArray(i)
-                val stem = if (row.isNull(0)) null else row.getString(0)
-                val grpArr = row.getJSONArray(1)
-                val groups = (0 until grpArr.length()).map { gi ->
-                    val g = grpArr.getJSONArray(gi)
-                    val field = if (g.isNull(0)) null else g.getString(0)
-                    val acc = g.getJSONArray(1).toIntList()
-                    field to acc
-                }
-                val flag = row.getJSONArray(2).toIntList()
-                Triple(stem, groups, flag)
-            }
+            // Parsed with the compact index parser (no org.json transient); acc/flag are IntArray.
+            val stems = LexJson(Assets.text("stem_lexicon.json")).parseStems()
             // accent_charclasses.json: { name: [cp1257_byte, ...], ... }
             val ccObj = Assets.json("accent_charclasses.json")
             val cc = mutableMapOf<String, Set<Char>>()
@@ -133,13 +174,8 @@ private fun nounTables(): NounTables {
     return synchronized(Accent) {
         _nt ?: run {
             // main_lexicon.json: [[rev_stem_or_null, [b0..b7]], ...]
-            val mainArr = Assets.jsonArray("main_lexicon.json")
-            val main = (0 until mainArr.length()).map { i ->
-                val row = mainArr.getJSONArray(i)
-                val s = if (row.isNull(0)) null else row.getString(0)
-                val b = row.getJSONArray(1).toIntList()
-                s to b
-            }
+            // Parsed with the compact index parser (no org.json transient); b is IntArray.
+            val main = LexJson(Assets.text("main_lexicon.json")).parseMain()
             // main_endings.json: [[rev_ending_or_null, [f0..f3]], ...]
             val endsArr = Assets.jsonArray("main_endings.json")
             val ends = (0 until endsArr.length()).map { i ->
@@ -165,7 +201,7 @@ private fun nounTables(): NounTables {
             val t17Arr = nt.getJSONArray("t17")
             val t17 = (0 until t17Arr.length()).map { t17Arr.getJSONArray(it).toIntList() }
             // Build idx: rev_stem (as cp1257-round-tripped string key) -> [(midx, bytes8)]
-            val idx = mutableMapOf<String, MutableList<Pair<Int, List<Int>>>>()
+            val idx = mutableMapOf<String, MutableList<Pair<Int, IntArray>>>()
             for (i in main.indices) {
                 val s = main[i].first ?: continue
                 // key is the cp1257-encoded bytes round-tripped back as a Latin-1 key
@@ -261,11 +297,11 @@ private fun pfxb(): List<ByteArray> {
 
 // ---- '*'-tail entries cache -------------------------------------------------------------------
 
-private fun starEntries(): List<Triple<ByteArray, ByteArray, List<Int>>> {
+private fun starEntries(): List<Triple<ByteArray, ByteArray, IntArray>> {
     _starEntries?.let { return it }
     return synchronized(Accent) {
         _starEntries ?: run {
-            val list = mutableListOf<Triple<ByteArray, ByteArray, List<Int>>>()
+            val list = mutableListOf<Triple<ByteArray, ByteArray, IntArray>>()
             for ((s, b) in nounTables().main) {
                 if (s != null && '*' in s) {
                     val parts = s.split('*', limit = 2)
