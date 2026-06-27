@@ -65,7 +65,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK (includes NDK — required by Chaquopy)
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Set up Gradle
@@ -74,22 +74,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # Release APK is signed with the standard debug key so it is directly
-      # installable without a private keystore (FOSS rolling build pattern).
-      - name: Ensure debug keystore exists
-        run: |
-          mkdir -p "$HOME/.android"
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -keypass android \
-              -alias androiddebugkey \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-
-      # Chaquopy downloads Python 3.12 runtime + numpy from the network during the
-      # first build; subsequent runs hit the Gradle/Chaquopy cache.
+      # Both build types are signed with the STABLE keystore committed at app/debug.keystore (see
+      # app/build.gradle.kts). A new build therefore installs as an update over the previous one.
+      # versionCode comes from GITHUB_RUN_NUMBER (auto), so every published APK is a newer version.
       - name: Build debug + release APKs
         run: ./gradlew assembleDebug assembleRelease --stacktrace
 
