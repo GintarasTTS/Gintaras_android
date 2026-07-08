@@ -64,6 +64,12 @@ _DECIMAL_SEPS = (u",", u".")
 # preceded by a digit ('2026-06-12') is not a minus either. Letters = Unicode letters (incl. ą č ę ...),
 # so a separator between DIGITS never triggers the inter-letter rule (decimals/dates are handled above).
 _MINUS_RE = re.compile(r"(?<![^\W_])-(?=\d)")        # '-' before a digit, NOT preceded by a letter/digit
+# '+' as a MATH operator glued to a digit is read by name ('+' -> "plius"), symmetric with the minus rule
+# above: '+15' -> 'plius 15', '2+3' -> '2 plius 3', '5 + 3' -> '5 plius 3', '18+' -> '18 plius'. Unlike '-'
+# (ambiguous with dates 2026-06-12), a '+' next to a digit is unambiguously the plus sign. A '+' with NO
+# digit on either side (a+b, C++) is left literal -- not read. The NAME comes from punct.tsv via _name('+').
+_PLUS_BETWEEN = re.compile(r"(?<=\d)\s*\+\s*(?=\d)")  # 2+3, 5 + 3 (optional spaces, digit both sides)
+_PLUS_EDGE = re.compile(r"(?<![^\W_])\+(?=\d)|(?<=\d)\+(?![^\W_])")  # +15 (leading), 18+ (trailing)
 # '.'/'*'/'@' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
 _INLETTER_RE = re.compile(r"(?<=[^\W\d_])([.*@])(?=[^\W\d_])")
 
@@ -226,6 +232,9 @@ def _read_symbols(text):
     ('lrt.lt' -> 'lrt taškas lt'). Runs BEFORE the punctuation step, so these are spoken even with punctuation
     reading off. See _MINUS_RE / _INLETTER_RE for the exact (espeak-style) contexts."""
     text = _MINUS_RE.sub(u"minus ", text)
+    plus = _name(u"+") or u"plius"                  # math '+' next to a digit -> "plius" (name from punct.tsv)
+    text = _PLUS_BETWEEN.sub(u" " + plus + u" ", text)
+    text = _PLUS_EDGE.sub(u" " + plus + u" ", text)
     text = _INLETTER_RE.sub(lambda m: (u" " + _name(m.group(1)) + u" ") if _name(m.group(1)) else m.group(0),
                             text)
     return text
