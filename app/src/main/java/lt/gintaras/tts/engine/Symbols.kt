@@ -151,7 +151,9 @@ internal object Symbols {
         try {
             for (line in Assets.lines(filename)) {
                 val l = line.trimEnd('\r', '\n')
-                if (l.isEmpty() || l.startsWith("#") || '\t' !in l) continue
+                // '#' at line start is a comment UNLESS it's the '#'<TAB> key (which names the '#' char
+                // itself); without this its own line looks like a comment and is skipped, leaving '#' silent.
+                if (l.isEmpty() || '\t' !in l || (l.startsWith("#") && !l.startsWith("#\t"))) continue
                 val idx = l.indexOf('\t')
                 val k = l.substring(0, idx)
                 val v = l.substring(idx + 1).trim()

@@ -94,7 +94,10 @@ def _load_map(filename):
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.rstrip("\r\n")
-                    if line and not line.startswith("#") and "\t" in line:
+                    # '#' at line start is a COMMENT -- UNLESS the line is the '#'<TAB> key (the entry that
+                    # names the '#' char itself); without this exception that entry looks like a comment and
+                    # is skipped, leaving '#' silent. Every data line has a TAB; comment prose is '# ...'.
+                    if line and "\t" in line and (not line.startswith("#") or line.startswith("#\t")):
                         k, v = line.split("\t", 1)
                         if k:
                             table[k] = v.strip()
