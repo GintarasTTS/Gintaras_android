@@ -64,12 +64,17 @@ _DECIMAL_SEPS = (u",", u".")
 # preceded by a digit ('2026-06-12') is not a minus either. Letters = Unicode letters (incl. ą č ę ...),
 # so a separator between DIGITS never triggers the inter-letter rule (decimals/dates are handled above).
 _MINUS_RE = re.compile(r"(?<![^\W_])-(?=\d)")        # '-' before a digit, NOT preceded by a letter/digit
-# '+' as a MATH operator glued to a digit is read by name ('+' -> "plius"), symmetric with the minus rule
-# above: '+15' -> 'plius 15', '2+3' -> '2 plius 3', '5 + 3' -> '5 plius 3', '18+' -> '18 plius'. Unlike '-'
-# (ambiguous with dates 2026-06-12), a '+' next to a digit is unambiguously the plus sign. A '+' with NO
-# digit on either side (a+b, C++) is left literal -- not read. The NAME comes from punct.tsv via _name('+').
-_PLUS_BETWEEN = re.compile(r"(?<=\d)\s*\+\s*(?=\d)")  # 2+3, 5 + 3 (optional spaces, digit both sides)
-_PLUS_EDGE = re.compile(r"(?<![^\W_])\+(?=\d)|(?<=\d)\+(?![^\W_])")  # +15 (leading), 18+ (trailing)
+# Symbols ALWAYS spoken by name (from punct.tsv), regardless of the punctuation-verbosity setting: math /
+# symbol normalization like '%' and the minus sign, NOT prose punctuation. Each is UNAMBIGUOUS (never a
+# Lithuanian word-joiner the way '-' is), so it is read wherever it appears -- '2+3' -> 'du plius trys',
+# 'a<b' -> 'a mažiau b', '+370' -> 'plius 370' -- AND a lone one navigated / spelled letter-by-letter reads
+# its name too. That last case was the bug: these are category Sm, which SURVIVES the punctuation strip (only
+# P*/Sk are stripped) but had no emoji.tsv name, so a standalone one reached the synth as SILENCE. Handling
+# them here (before the strip) names them from punct.tsv independent of read_punctuation, in every engine
+# (uniform code; no dependence on the per-engine emoji.tsv). '+' plius, '<' mažiau, '>' daugiau, '=' lygu,
+# '|' vertikalė, '~' bangelė. (NOT included, no name defined anywhere yet: '×' '÷' '№'; '#'=numeris is unreachable
+# -- its punct.tsv line starts with '#' so the loader skips it as a comment.)
+_ALWAYS_READ = u"+<>=|~"
 # '.'/'*'/'@' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
 _INLETTER_RE = re.compile(r"(?<=[^\W\d_])([.*@])(?=[^\W\d_])")
 
@@ -232,9 +237,10 @@ def _read_symbols(text):
     ('lrt.lt' -> 'lrt taškas lt'). Runs BEFORE the punctuation step, so these are spoken even with punctuation
     reading off. See _MINUS_RE / _INLETTER_RE for the exact (espeak-style) contexts."""
     text = _MINUS_RE.sub(u"minus ", text)
-    plus = _name(u"+") or u"plius"                  # math '+' next to a digit -> "plius" (name from punct.tsv)
-    text = _PLUS_BETWEEN.sub(u" " + plus + u" ", text)
-    text = _PLUS_EDGE.sub(u" " + plus + u" ", text)
+    for _sym in _ALWAYS_READ:                        # '+' '<' '>' '=' '|' '~' -> spoken name (always; from punct.tsv)
+        nm = _name(_sym)
+        if nm:
+            text = text.replace(_sym, u" " + nm + u" ")
     text = _INLETTER_RE.sub(lambda m: (u" " + _name(m.group(1)) + u" ") if _name(m.group(1)) else m.group(0),
                             text)
     return text

@@ -42,13 +42,16 @@ internal object Symbols {
     // Lithuanian ą č ę … included, no flag needed) for "letter" and [0-9] for digit -- equivalent to
     // Python's Unicode \w/\d on our inputs, and verified byte-identical by the parity harness.
     private val MINUS_RE = Regex("(?<![\\p{L}0-9])-(?=[0-9])")
-    // '+' as a MATH operator glued to a digit is read by name ('+' -> "plius"), symmetric with the minus rule:
-    // '+15' -> 'plius 15', '2+3' -> '2 plius 3', '5 + 3' -> '5 plius 3', '18+' -> '18 plius'. Unlike '-'
-    // (ambiguous with dates 2026-06-12), a '+' next to a digit is unambiguously the plus sign; a '+' with no
-    // digit on either side (a+b, C++) is left literal. Name from punct.tsv via name('+'). Same \p{L}/[0-9]
-    // classes as MINUS_RE (never Pattern.UNICODE_CHARACTER_CLASS -- that flag is unsupported on Android).
-    private val PLUS_BETWEEN = Regex("(?<=[0-9])\\s*\\+\\s*(?=[0-9])")           // 2+3, 5 + 3
-    private val PLUS_EDGE = Regex("(?<![\\p{L}0-9])\\+(?=[0-9])|(?<=[0-9])\\+(?![\\p{L}0-9])")  // +15, 18+
+    // Symbols ALWAYS spoken by name (from punct.tsv), regardless of the punctuation setting: math / symbol
+    // normalization like '%' and the minus sign, NOT prose punctuation. Each is UNAMBIGUOUS (never a
+    // Lithuanian word-joiner the way '-' is), so it is read wherever it appears -- '2+3' -> 'du plius trys',
+    // 'a<b' -> 'a mažiau b' -- AND a lone one navigated / spelled letter-by-letter reads its name too. That
+    // last case was the bug: these are Unicode category Sm, which SURVIVES the punctuation strip (only P*/Sk
+    // are stripped) but had no emoji.tsv name, so a standalone one reached the synth as SILENCE. Naming them
+    // here (before the strip) from punct.tsv is independent of readPunctuation and the emoji.tsv. '+' plius,
+    // '<' mažiau, '>' daugiau, '=' lygu, '|' vertikalė, '~' bangelė. (No name defined yet: × ÷ №; '#'=numeris
+    // is unreachable -- its punct.tsv line starts with '#' so the loader skips it as a comment.)
+    private const val ALWAYS_READ = "+<>=|~"
     // '.'/'*'/'@' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
     private val INLETTER_RE = Regex("(?<=\\p{L})([.*@])(?=\\p{L})")
 
@@ -71,9 +74,10 @@ internal object Symbols {
      *  punctuation step so these are spoken even with punctuation reading off. */
     private fun readSymbols(text: String): String {
         var t = MINUS_RE.replace(text, "minus ")
-        val plus = name('+').ifEmpty { "plius" }    // math '+' next to a digit -> "plius" (name from punct.tsv)
-        t = PLUS_BETWEEN.replace(t, " $plus ")
-        t = PLUS_EDGE.replace(t, " $plus ")
+        for (sym in ALWAYS_READ) {                   // '+' '<' '>' '=' '|' '~' -> spoken name (always; from punct.tsv)
+            val nm = name(sym)
+            if (nm.isNotEmpty()) t = t.replace(sym.toString(), " $nm ")
+        }
         t = INLETTER_RE.replace(t) { m -> val nm = name(m.groupValues[1][0]); if (nm.isNotEmpty()) " $nm " else m.value }
         return t
     }
