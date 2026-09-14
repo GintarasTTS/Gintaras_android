@@ -49,11 +49,15 @@ internal object Symbols {
     // last case was the bug: these are Unicode category Sm, which SURVIVES the punctuation strip (only P*/Sk
     // are stripped) but had no emoji.tsv name, so a standalone one reached the synth as SILENCE. Naming them
     // here (before the strip) from punct.tsv is independent of readPunctuation and the emoji.tsv. '+' plius,
-    // '<' mažiau, '>' daugiau, '=' lygu, '|' vertikalė, '~' bangelė. (No name defined yet: × ÷ №; '#'=numeris
-    // is unreachable -- its punct.tsv line starts with '#' so the loader skips it as a comment.)
-    private const val ALWAYS_READ = "+<>=|~"
-    // '.'/'*'/'@' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
-    private val INLETTER_RE = Regex("(?<=\\p{L})([.*@])(?=\\p{L})")
+    // '<' mažiau, '>' daugiau, '=' lygu, '|' vertikalė, '~' bangelė, '@' eta. (No name defined yet: × ÷ №;
+    // '#'=numeris is unreachable -- its punct.tsv line starts with '#' so the loader skips it as a comment.)
+    // '@' is category Po, not Sm, so it did NOT survive the strip: it used to be read ONLY between two letters
+    // ('vardas@host'), and was SILENTLY DROPPED at a word edge or standing alone ('@vardas', 'vardas@',
+    // 'a @ b', a lone '@'). It meets the same bar as the operators above, so it is read wherever it appears.
+    private const val ALWAYS_READ = "+<>=|~@"
+    // '.'/'*' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
+    // '@' is NOT here -- ALWAYS_READ already replaced every '@' before this rule runs.
+    private val INLETTER_RE = Regex("(?<=\\p{L})([.*])(?=\\p{L})")
 
     /** Spoken Lithuanian name for a single symbol char, from the ONE table punct.tsv; "" if not listed. The
      *  decimal / inter-letter / isolated rules all draw names from here -- no rule hardcodes a spoken word. */
@@ -70,11 +74,12 @@ internal object Symbols {
             .joinToString(" ")
     }
 
-    /** Speak a leading-minus before a digit and a '.'/'*'/'@' glued between two letters. Runs BEFORE the
-     *  punctuation step so these are spoken even with punctuation reading off. */
+    /** Speak a leading-minus before a digit, the always-read symbols anywhere ('a@b' -> 'a eta b') and a
+     *  '.'/'*' glued between two letters. Runs BEFORE the punctuation step so these are spoken even with
+     *  punctuation reading off. */
     private fun readSymbols(text: String): String {
         var t = MINUS_RE.replace(text, "minus ")
-        for (sym in ALWAYS_READ) {                   // '+' '<' '>' '=' '|' '~' -> spoken name (always; from punct.tsv)
+        for (sym in ALWAYS_READ) {                   // '+' '<' '>' '=' '|' '~' '@' -> spoken name (from punct.tsv)
             val nm = name(sym)
             if (nm.isNotEmpty()) t = t.replace(sym.toString(), " $nm ")
         }

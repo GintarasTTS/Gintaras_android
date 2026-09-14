@@ -178,6 +178,11 @@ lrt.lt	-	-
 www.delfi.lt	-	-
 a*b	-	-
 vardas@host.lt	-	-
+@	-	-
+@vardas	-	-
+vardas@	-	-
+vienas @ du	-	-
+2@3	-	-
 kazin-kas	-	-
 (-15)	-	-
 -15,5	-	-

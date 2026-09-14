@@ -11,7 +11,8 @@ core engine never depends on them.
     data/latvian.tsv   two blocks [names] / [sounds], per letter   (read_latvian; Latvian-UNIQUE letters only)
 
 punct.tsv is the ONE place every symbol name lives -- the decimal rule (','/'.' between digits), the
-inter-letter rule ('.'/'*'/'@' inside an identifier) and the isolated-symbol reader all look their names up
+inter-letter rule ('.'/'*' inside an identifier), the always-read symbols ('+' '<' '>' '=' '|' '~' '@') and
+the isolated-symbol reader all look their names up
 there (the code holds only the RULE -- which chars fire -- never the spoken word), so a port just reads the
 file. read_punctuation does NOT name prose: punctuation inside running text is ALWAYS left to the screen
 reader (it names it per the user's verbosity setting); read_punctuation only decides whether a LONE symbol
@@ -58,8 +59,10 @@ _DECIMAL_SEPS = (u",", u".")
 # Always-read symbols (espeak-style text normalization), independent of the punctuation-verbosity setting:
 #   * a '-' directly before a digit, at the start of the text or after a space, is a MINUS sign:
 #     '-15' -> 'minus 15', 'temperatūra -15 laipsnių' -> '... minus 15 ...'.
-#   * '.', '*', '@' GLUED between two LETTERS (no spaces) are read by name so identifiers stay legible:
-#     'lrt.lt' -> 'lrt taškas lt', 'a*b' -> 'a žvaigždutė b', 'vardas@host' -> 'vardas eta host'.
+#   * '.', '*' GLUED between two LETTERS (no spaces) are read by name so identifiers stay legible:
+#     'lrt.lt' -> 'lrt taškas lt', 'a*b' -> 'a žvaigždutė b'.
+#   * '@' is read by name EVERYWHERE (it is in _ALWAYS_READ, below) -- 'vardas@host' -> 'vardas eta host',
+#     '@vardas' -> 'eta vardas', a lone '@' -> 'eta'.
 # A '-' BETWEEN letters is NOT read (Lithuanian hyphenated words like 'kažin-kas' read naturally); a '-'
 # preceded by a digit ('2026-06-12') is not a minus either. Letters = Unicode letters (incl. ą č ę ...),
 # so a separator between DIGITS never triggers the inter-letter rule (decimals/dates are handled above).
@@ -72,11 +75,16 @@ _MINUS_RE = re.compile(r"(?<![^\W_])-(?=\d)")        # '-' before a digit, NOT p
 # P*/Sk are stripped) but had no emoji.tsv name, so a standalone one reached the synth as SILENCE. Handling
 # them here (before the strip) names them from punct.tsv independent of read_punctuation, in every engine
 # (uniform code; no dependence on the per-engine emoji.tsv). '+' plius, '<' mažiau, '>' daugiau, '=' lygu,
-# '|' vertikalė, '~' bangelė. (NOT included, no name defined anywhere yet: '×' '÷' '№'; '#'=numeris is unreachable
-# -- its punct.tsv line starts with '#' so the loader skips it as a comment.)
-_ALWAYS_READ = u"+<>=|~"
-# '.'/'*'/'@' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
-_INLETTER_RE = re.compile(r"(?<=[^\W\d_])([.*@])(?=[^\W\d_])")
+# '|' vertikalė, '~' bangelė, '@' eta. (NOT included, no name defined anywhere yet: '×' '÷' '№'; '#'=numeris is
+# unreachable -- its punct.tsv line starts with '#' so the loader skips it as a comment.)
+# '@' is category Po, not Sm, so it did NOT survive the strip: it used to be read ONLY between two letters
+# ('vardas@host'), and was SILENTLY DROPPED at a word edge or standing alone ('@vardas', 'vardas@', 'a @ b',
+# a lone '@'). It meets the same bar as the operators above (unambiguous, never a Lithuanian word-joiner),
+# so it is read wherever it appears.
+_ALWAYS_READ = u"+<>=|~@"
+# '.'/'*' glued between two letters are named (the RULE is this char class; the NAME comes from punct.tsv).
+# '@' is NOT here -- _ALWAYS_READ already replaced every '@' before this rule runs.
+_INLETTER_RE = re.compile(r"(?<=[^\W\d_])([.*])(?=[^\W\d_])")
 
 _MAPS = {}                      # filename -> (dict, compiled-regex|None); cached per file
 _LETTERS = {}                   # filename -> {'names': {ch:txt}, 'sounds': {ch:txt}}  (None inside = absent)
@@ -236,11 +244,12 @@ def _read_decimals(text):
 
 
 def _read_symbols(text):
-    """Speak a leading-minus before a digit ('-15' -> 'minus 15') and a '.'/'*'/'@' glued between two letters
-    ('lrt.lt' -> 'lrt taškas lt'). Runs BEFORE the punctuation step, so these are spoken even with punctuation
-    reading off. See _MINUS_RE / _INLETTER_RE for the exact (espeak-style) contexts."""
+    """Speak a leading-minus before a digit ('-15' -> 'minus 15'), the always-read symbols anywhere
+    ('a@b' -> 'a eta b', '2+3' -> '2 plius 3') and a '.'/'*' glued between two letters ('lrt.lt' -> 'lrt
+    taškas lt'). Runs BEFORE the punctuation step, so these are spoken even with punctuation reading off.
+    See _MINUS_RE / _ALWAYS_READ / _INLETTER_RE for the exact (espeak-style) contexts."""
     text = _MINUS_RE.sub(u"minus ", text)
-    for _sym in _ALWAYS_READ:                        # '+' '<' '>' '=' '|' '~' -> spoken name (always; from punct.tsv)
+    for _sym in _ALWAYS_READ:                        # '+' '<' '>' '=' '|' '~' '@' -> spoken name (from punct.tsv)
         nm = _name(_sym)
         if nm:
             text = text.replace(_sym, u" " + nm + u" ")
