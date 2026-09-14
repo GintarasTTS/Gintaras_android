@@ -8,3 +8,6 @@ local.properties
 # jvmtest scratch outputs
 jvmtest/kotlin_out.tsv
 app/src/main/python/lt_tts/__pycache__/
+
+# local parity-harness build artifact (kotlinc output)
+harness.jar

@@ -6,6 +6,7 @@ import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.util.Log
+import lt.gintaras.tts.engine.Boost
 import lt.gintaras.tts.engine.GintarasEngine
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -70,6 +71,10 @@ class GintarasTtsService : TextToSpeechService() {
 
         val rate  = (request.speechRate / 2).coerceIn(0, 100)
         val pitch = (request.pitch       / 2).coerceIn(0, 100)
+        // Speed boost above engine rate 100 (Boost.kt == lt_tts boost.boost_for_percent): up to 200 % the engine
+        // rate alone; 200..225 % = plain rate 100 WITHOUT Sonic (reachable by TalkBack's x1.1 gestures: 214 %);
+        // 225 % -> 600 % (TalkBack's ceiling) = Sonic x1.0 -> x2.0.
+        val boost = Boost.boostForPercent(request.speechRate)
 
         if (callback.start(SAMPLE_RATE, AudioFormat.ENCODING_PCM_16BIT, 1) == TextToSpeech.ERROR) return
 
@@ -82,7 +87,7 @@ class GintarasTtsService : TextToSpeechService() {
             for ((clause, delim) in splitClauses(text)) {
                 val piece = clause + delim
                 if (piece.isEmpty()) continue
-                val samples = engine.synthPcm(piece, rate = rate, pitch = pitch)
+                val samples = engine.synthPcm(piece, rate = rate, pitch = pitch, boostMilli = boost)
                 streamBytes(samplesToBytes(samples), callback) ?: run { callback.done(); return }
             }
         } catch (e: Throwable) {

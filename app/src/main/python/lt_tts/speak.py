@@ -9,6 +9,7 @@ from . import planbuilder as PF
 from . import backend as GS
 from . import numerals as LN
 from . import symbols as SY
+from . import boost as BO
 
 SR = 22050
 # Engine-measured silences (tts_cli, natural rate, gap between 'labas' and 'rytas'): word gap 662 samples,
@@ -45,11 +46,16 @@ def _is_letter_token(word):
 
 
 def synth_text_stream(text, rate=None, pitch=None, capital_pitch=True,
-                      read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None):
+                      read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None,
+                      boost_milli=None):
     """Streaming core: yields the SAME audio as synth_text, but one clause/pause chunk at a time, AS SOON AS
     each is synthesized -- so a caller can start playing after the FIRST clause instead of after the whole
     text (the long-text first-audio lag). Concatenating every yielded chunk is byte-identical to synth_text's
-    return value; only WHEN bytes become available changes. Yields plain int16-sample lists."""
+    return value; only WHEN bytes become available changes. Yields plain int16-sample lists.
+
+    boost_milli (int permille 1000..2000; None / 1000 = off) adds speed ABOVE the engine's own maximum:
+    each clause body is time-stretched with Sonic and each pure-silence chunk is shortened (boost.py).
+    At 1000 every chunk is yielded untouched, so the output stays byte-identical."""
     text = SY.expand(text, read_emoji=read_emoji, read_cyrillic=read_cyrillic,
                      read_latvian=read_latvian,         # emoji / Cyrillic / Latvian -> spoken Lithuanian
                      read_punctuation=read_punctuation)  # punctuation: SKIPPED by default (the screen
@@ -59,8 +65,9 @@ def synth_text_stream(text, rate=None, pitch=None, capital_pitch=True,
     # LEAD/TAIL/clause pauses must follow -- a fast rate with fixed 0.2-0.36s pauses is what made fast NVDA
     # reading feel slower than the original SAPI4 voice. rate=None -> 1.0 (natural, unchanged).
     pf = 1.0 if rate is None else GS.rate_thr(rate) / 150.0
+    bm = BO.clamp_boost(boost_milli)   # speed boost above rate 100 (1000 = off -> byte-identical)
     if LEAD:
-        yield list(_sil(LEAD * pf))
+        yield BO.shorten_silence(list(_sil(LEAD * pf)), bm)
     # split into (clause, following-delimiter) pairs so a clause ending in '?' gets the QUESTION RISE contour
     parts = re.split(r"([.,;:!?—])", text)
     for k in range(0, len(parts), 2):
@@ -103,20 +110,22 @@ def synth_text_stream(text, rate=None, pitch=None, capital_pitch=True,
                             out += _sil(0.02 * pf)
                         except Exception:
                             pass
-            yield out                                            # clause body, as soon as it is ready
+            yield BO.stretch_body(out, bm)                   # clause body (Sonic when boosted), as soon as ready
         if delim:
-            yield _sil(PAUSE.get(delim, 0.12) * pf)              # inter-clause pause
+            yield BO.shorten_silence(_sil(PAUSE.get(delim, 0.12) * pf), bm)   # inter-clause pause
     if TAIL:
-        yield list(_sil(TAIL * pf))
+        yield BO.shorten_silence(list(_sil(TAIL * pf)), bm)
 
 
 def synth_text(text, rate=None, pitch=None, capital_pitch=True,
-               read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None):
+               read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None,
+               boost_milli=None):
     """Whole-text synth: the concatenation of synth_text_stream's chunks (byte-identical to the prior
     accumulating implementation)."""
     out = []
     for chunk in synth_text_stream(text, rate=rate, pitch=pitch, capital_pitch=capital_pitch,
                                    read_emoji=read_emoji, read_cyrillic=read_cyrillic,
-                                   read_latvian=read_latvian, read_punctuation=read_punctuation):
+                                   read_latvian=read_latvian, read_punctuation=read_punctuation,
+                                   boost_milli=boost_milli):
         out += chunk
     return out

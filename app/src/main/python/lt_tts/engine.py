@@ -30,12 +30,16 @@ class Gintaras:
                   the original DLL never wired it -- so it is not bit-exact, unlike rate.)
         capital_pitch : when reading isolated letters / abbreviations, raise UPPERCASE letters to a high pitch
                   so capitals are audibly distinguished from lowercase (common screen-reader practice).
+        boost_milli : speed boost ABOVE the engine's maximum, integer permille 1000..2000 (x1.0..x2.0), meant
+                  for rate=100. None / 1000 = off (byte-identical output); above 1000 the finished audio is
+                  time-stretched with Sonic in quality mode (see boost.py). Out-of-range values are clamped.
 
     Any parameter may also be overridden per call to synth()/synth_pcm()/save().
     """
 
     def __init__(self, rate=None, pitch=None, capital_pitch=True,
-                 read_emoji=True, read_cyrillic=True, read_latvian=True, read_punctuation=False):
+                 read_emoji=True, read_cyrillic=True, read_latvian=True, read_punctuation=False,
+                 boost_milli=None):
         self.rate = rate
         self.pitch = pitch
         self.capital_pitch = capital_pitch
@@ -45,9 +49,11 @@ class Gintaras:
         self.read_punctuation = read_punctuation  # name punctuation (quotes/brackets/...). DEFAULT OFF: a
                                                 # screen reader names punctuation itself per ITS setting --
                                                 # the engine skipping it is what makes that setting work.
+        self.boost_milli = boost_milli          # speed boost above rate 100 (boost.py)
 
     def synth_pcm(self, text, rate=None, pitch=None, capital_pitch=None,
-                  read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None):
+                  read_emoji=None, read_cyrillic=None, read_latvian=None, read_punctuation=None,
+                  boost_milli=None):
         """Synthesize `text` -> a list[int] of int16 PCM samples at 22050 Hz."""
         r = self.rate if rate is None else rate
         p = self.pitch if pitch is None else pitch
@@ -56,9 +62,10 @@ class Gintaras:
         rc = self.read_cyrillic if read_cyrillic is None else read_cyrillic
         rl = self.read_latvian if read_latvian is None else read_latvian
         rp = self.read_punctuation if read_punctuation is None else read_punctuation
+        bm = self.boost_milli if boost_milli is None else boost_milli
         return speak.synth_text(text, rate=r, pitch=p, capital_pitch=cp,
                                 read_emoji=re_, read_cyrillic=rc, read_latvian=rl,
-                                read_punctuation=rp)
+                                read_punctuation=rp, boost_milli=bm)
 
     def synth(self, text, **kw):
         """Synthesize `text` -> WAV file bytes (16-bit mono @ 22050 Hz)."""

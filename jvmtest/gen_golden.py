@@ -25,14 +25,15 @@ def main():
         text = f[0]
         rate = None if len(f) < 2 or f[1] == "-" else int(f[1])
         pitch = None if len(f) < 3 or f[2] == "-" else int(f[2])
+        boost = None if len(f) < 4 or f[3] == "-" else int(f[3])   # optional speed-boost column
         try:
-            pcm = speak.synth_text(text, rate=rate, pitch=pitch)
+            pcm = speak.synth_text(text, rate=rate, pitch=pitch, boost_milli=boost)
             blob = struct.pack("<%dh" % len(pcm), *pcm)
             res = "%s %d" % (hashlib.md5(blob).hexdigest(), len(pcm))
         except Exception as e:  # pragma: no cover
             res = "ERROR %s: %s" % (type(e).__name__, e)
         out.append(res)
-        sys.stderr.write("done: %r rate=%r pitch=%r -> %s\n" % (text, rate, pitch, res))
+        sys.stderr.write("done: %r rate=%r pitch=%r boost=%r -> %s\n" % (text, rate, pitch, boost, res))
     io.open(golden, "w", encoding="utf-8", newline="\n").write("\n".join(out) + "\n")
     print("wrote", golden)
 

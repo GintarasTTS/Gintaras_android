@@ -12,7 +12,7 @@ import java.security.MessageDigest
 // engine itself is validated bit-exact against the original hlas/transcr4 DLLs).
 //
 // usage: Harness <dataDir> <cases.tsv> <out.tsv>
-//   cases.tsv: one case per line, TAB-separated:  text \t rate(int|-) \t pitch(int|-)
+//   cases.tsv: one case per line, TAB-separated:  text \t rate(int|-) \t pitch(int|-) [\t boost_milli(int|-)]
 
 fun main(args: Array<String>) {
     Assets.dataDir = File(args[0])
@@ -41,8 +41,9 @@ fun main(args: Array<String>) {
         val text = f[0]
         val rate = f.getOrNull(1)?.takeIf { it != "-" }?.toInt()
         val pitch = f.getOrNull(2)?.takeIf { it != "-" }?.toInt()
+        val boost = f.getOrNull(3)?.takeIf { it != "-" }?.toInt()
         val res = try {
-            val pcm = Speak.synthText(text, rate = rate, pitch = pitch)
+            val pcm = Speak.synthText(text, rate = rate, pitch = pitch, boostMilli = boost)
             val bb = ByteBuffer.allocate(pcm.size * 2).order(ByteOrder.LITTLE_ENDIAN)
             for (s in pcm) bb.putShort(s.toShort())
             val md5 = MessageDigest.getInstance("MD5").digest(bb.array())
@@ -52,7 +53,7 @@ fun main(args: Array<String>) {
             "ERROR ${e.javaClass.simpleName}: ${e.message}"
         }
         out.append(res).append('\n')
-        System.err.println("done: $text rate=$rate pitch=$pitch -> $res")
+        System.err.println("done: $text rate=$rate pitch=$pitch boost=$boost -> $res")
     }
     File(args[2]).writeText(out.toString())
 }

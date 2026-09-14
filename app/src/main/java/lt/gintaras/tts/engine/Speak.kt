@@ -2,6 +2,7 @@ package lt.gintaras.tts.engine
 
 // Kotlin port of lt_tts/speak.py
 // Multi-word / number synthesizer.
+// + the Sonic speed boost above rate 100 (Boost.kt): each clause body and each pause is ONE chunk.
 
 internal object Speak {
 
@@ -39,7 +40,8 @@ internal object Speak {
         readEmoji: Boolean? = null,
         readCyrillic: Boolean? = null,
         readLatvian: Boolean? = null,
-        readPunctuation: Boolean? = null
+        readPunctuation: Boolean? = null,
+        boostMilli: Int? = null
     ): IntArray {
         val expanded = Symbols.expand(text,
             readEmoji = readEmoji ?: true,
@@ -54,9 +56,11 @@ internal object Speak {
         // our own LEAD/TAIL/clause pauses must follow -- a fast rate with fixed 0.2-0.36s pauses is what
         // made fast reading feel slower than the original SAPI4 voice. rate=null -> 1.0 (unchanged).
         val pf = if (rate == null) 1.0 else Backend.rateThr(rate) / 150.0
+        // Speed boost above engine rate 100 (lt_tts boost.py): 1000 = off -> byte-identical output.
+        val bm = Boost.clampBoost(boostMilli)
 
         val out = mutableListOf<Int>()
-        out.addAll(sil(LEAD * pf).toList())
+        out.addAll(Boost.shortenSilence(sil(LEAD * pf), bm).toList())
 
         // split on punctuation, preserving delimiters
         val parts = mutableListOf<String>()
@@ -75,6 +79,7 @@ internal object Speak {
         for ((clauseRaw, delim) in parts.zip(delims)) {
             val clause = clauseRaw.trim()
             if (clause.isNotEmpty()) {
+                val body = mutableListOf<Int>()   // this clause's audio -> ONE Sonic chunk when boosted
                 val toks = clause.split(Regex("\\s+")).filter { it.isNotEmpty() }
                 if (capitalPitch && toks.isNotEmpty() && toks.all { isLetterToken(it) }) {
                     // spell mode: render each letter discretely. Case is NOT pitch-distinguished -- the screen
@@ -86,8 +91,8 @@ internal object Speak {
                                 PlanBuilder.buildPlanPhase2(t, rate = rate, pitch = lp),
                                 rate = rate, pitch = lp
                             )
-                            out.addAll(pcm.toList())
-                            out.addAll(sil(SPELL_GAP * pf).toList())
+                            body.addAll(pcm.toList())
+                            body.addAll(sil(SPELL_GAP * pf).toList())
                         } catch (_: Exception) {}
                     }
                 } else {
@@ -98,7 +103,7 @@ internal object Speak {
                                                         rate = rate, pitch = pitch),
                             rate = rate, pitch = pitch
                         )
-                        out.addAll(pcm.toList())
+                        body.addAll(pcm.toList())
                     } catch (_: Exception) {
                         // ONE unbuildable word must not silence the whole line (the old per-clause
                         // swallow made any failing word eat its entire sentence): retry word by word,
@@ -109,19 +114,20 @@ internal object Speak {
                                     PlanBuilder.buildPlanPhase2(t, rate = rate, pitch = pitch),
                                     rate = rate, pitch = pitch
                                 )
-                                out.addAll(pcm.toList())
-                                out.addAll(sil(0.02 * pf).toList())
+                                body.addAll(pcm.toList())
+                                body.addAll(sil(0.02 * pf).toList())
                             } catch (_: Exception) {}
                         }
                     }
                 }
+                out.addAll(Boost.stretchBody(body.toIntArray(), bm).toList())
             }
             if (delim != ' ') {
-                out.addAll(sil((PAUSE[delim] ?: 0.12) * pf).toList())
+                out.addAll(Boost.shortenSilence(sil((PAUSE[delim] ?: 0.12) * pf), bm).toList())
             }
         }
 
-        out.addAll(sil(TAIL * pf).toList())
+        out.addAll(Boost.shortenSilence(sil(TAIL * pf), bm).toList())
         return out.toIntArray()
     }
 }
