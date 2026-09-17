@@ -219,7 +219,13 @@ def _a5_eligible(key, phone, D, prev_phone=None, raw=None, oo_suppress=False):
     is_coda = key.startswith("-") or (not key.endswith("-") and len(key) <= 3)
     is_onset = key.endswith("-")
     pl = phone.replace("'", "")
-    if is_coda and body and body[-1] in _A5_LONG_MONO and len(pl) == 1 and pl in _A5_LONG_MONO:
+    # A MERGED falling diphthong nucleus `oj`/`oi` counts as its long-o HEAD here: once the voice is loaded
+    # the front-end merges o + j/i into ONE token, and the engine still spends the long-/o:/ epochs on its
+    # o-body (captured loj/vietoj/lioj are ~10 epochs == ~3.2k samples longer than the undoubled render).
+    # Only the o-BODY unit matches (`-lo`, `o|`); the `-oj` offglide's body ends in 'j' and stays brief.
+    # `ou` keeps its own branch below -- its short/long head rules differ.
+    head = pl[0] if (len(pl) == 2 and pl[1] in "ji") else pl
+    if is_coda and body and body[-1] in _A5_LONG_MONO and len(head) == 1 and head in _A5_LONG_MONO:
         # The long-/o:/ doubling is gated on the lt_ilgiai LENGTH CODE (the raw transcr token), NOT the old
         # `D >= 108` DURATION proxy. The code is the engine's own long/short mark and is exact; D>=108 MISSED
         # the slightly-shorter long o's -- sportas/tortas/forma (`Oo`, dur 107) and korta (`oo`, dur 103) all
@@ -468,6 +474,11 @@ def build_plan_phase2(word, final=True, question=False, rate=None, pitch=None):
         plan.se8_ramp = False
     GS.synthesize(plan, rate=rate, pitch=pitch, _frame_rpos=fr_rpos)   # no release_rpos yet => no-arm pass
     rr = _gen_arm_rpos(word, frames, fr_rpos)        # fully generative arm (no capture)
+    if rr is ARM_UNARMED:
+        for fr in frames:
+            fr.pop('release', None)                  # nothing arms the fall (backend would arm at the flag)
+        plan.se8_ramp = True                         # ...but the contour machinery still runs (see ARM_UNARMED)
+        rr = None
     if rr is not None:
         plan.release_rpos = rr
         for fr in frames:
@@ -550,6 +561,9 @@ def build_plan_phrase(text, question=False, rate=None, pitch=None):
         rr = None
         if wr is not None:
             rr = _gen_arm_rpos(w, wf, wr)             # absolute arm sample (wr is already absolute, in-phrase)
+        if rr is ARM_UNARMED:                         # this word never arms (the phrase plan already ramps)
+            arm_list.append(None)
+            continue
         if rr is None:                                # fallback: the standalone arm shifted by the word start
             base_rpos = fr_rpos[start - 1] if start > 0 else 0
             srr = getattr(wp, 'release_rpos', None)
@@ -700,6 +714,14 @@ def _prie_early():
     return _PRIE_EARLY
 
 
+ARM_UNARMED = object()                               # _gen_arm_rpos: the fda0 contour machinery RUNS on every
+                                                     # frame, but the se8 fall is never armed (no arm node).
+                                                     # Distinct from None ("no contour at all") because an
+                                                     # armed-but-never-fired contour still steps the s94 IIR
+                                                     # on each verbatim burst frame (kioj/rioj/dioj: 5-11
+                                                     # samples), while a plain no-arm plan does not.
+
+
 def _gen_arm_rpos(word, frames, frame_rpos):
     """FULLY GENERATIVE se8-fall arm output sample (no capture): map the generative armc (engstr charpos) to the
     front-end phone owning it (pos2phone), then arm_out = cumulative OUTPUT of every frame BEFORE that phone's
@@ -769,6 +791,18 @@ def _gen_arm_rpos(word, frames, frame_rpos):
         for a, b in zip(ap_idx, ap_idx[1:]):
             if frames[b].get('key') != frames[a].get('key'):
                 blocks.append(b)
+        if len(blocks) == 1 and engstr[armc] in (0x6a, 0x69):     # 'j'/'i' == a real diphthong OFFGLIDE
+            # The armc char has NO demisyllable of its own: the whole diphthong is ONE piped body, as in the
+            # SOFT falling nucleus (lioj/kioj/rioj/dioj = `Co-`/`lo|--` + `o|`, where the j element never gets
+            # its own unit). The engine's per-char loop arms the se8 fall when it PROCESSES that char's node,
+            # so with no node the fall is never armed at all -- the word keeps the flat -20 target and its
+            # pitch falls to the end. Arming at the block start instead (the old fallback) held s94 >= 0 and
+            # made the tail flat, leaving these words 11-87 samples long. (Engine-WAV verified bit-exact on
+            # lioj/lioi/kioj/rioj/dioj; the SPLIT diphthongs duona/važiuoti/kurioj/vietoj are untouched --
+            # they have >= 2 blocks or arm on their 1st element.) The offglide-char gate is what keeps a
+            # 2-CHAR CONSONANT out: `dz`/`dž`/`ch` also put armc on a phone's 2nd char with a single block
+            # (sedžbark/midzmirg), and suppressing their arm is wrong -- only a j/i offglide qualifies.
+            return ARM_UNARMED
         arm_frame = blocks[min(elem_idx, len(blocks) - 1)]
     if arm_frame is None or arm_frame == 0:
         return None

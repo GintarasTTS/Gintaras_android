@@ -593,7 +593,24 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                     # A SOFT (palatalized) onset + `ui` -> the `u|j` pipe-glide (kurjeriui/vyriui/broliui).
                     gl = glide_unit(v[0], v[1], vst, units,
                                     prev_soft=(palatals is not None and palatals[i]), onset=c)
-                    if gl and gl.startswith("-"):
+                    # A SOFT (palatalized) onset + a DASHED falling glide is played by the engine as the plain
+                    # SOFT SYLLABLE -- the `Cv|--` combo + the `v|` pipe body -- with NO offglide unit at all:
+                    # lioj/kioj/rioj/dioj/šioj/kurioj -> lo|-- + o|, exactly like lio/liojo (engine
+                    # CMapStringToOb::Lookup-verified 2026-09-16; hard loj keeps lo-/-lo/-oj). Without this the
+                    # merged `oj` token took the hard `Cv-`/`-Cv` pair and dropped the palatalization, so "lioj"
+                    # read "loj" -- the same class as the soft-C+uo `uo|` fix (važiuoti -> važuoti).
+                    # Consonants with NO recorded combo keep their plain `Cv-` onset + the pipe (rioj/kioj/dioj/
+                    # šioj/kurioj -> ro-/ko-/do-/šo- + o|, engine-verified). Gated on the PIPE existing (only
+                    # i|/u|/ū|/o| were recorded, so `aj`/`ej` never fire) and on the glide being DASHED, so the
+                    # soft `ui` -> `u|j` pipe-glide keeps its own body (the bare-glide branch below swaps only
+                    # its ONSET: broliui = lu|-- + u|j).
+                    scombo = c + ("u" if v[0] == U_OG else v[0]) + "|--"
+                    spipe = v[0] + "|"
+                    if soft_c and gl and gl.startswith("-") and spipe in units:
+                        if scombo in units:
+                            on = scombo                              # soft combo when recorded (l/t: lo|--)
+                        chain.append(spipe); pbod = spipe            # pipe body carries the palatalization
+                    elif gl and gl.startswith("-"):
                         nbody = body_unit(c, v[0], False, units)
                         if nbody: chain.append(nbody); pbod = nbody
                         if gl: chain.append(gl); dipkeys.add(gl)
@@ -601,6 +618,12 @@ def build_tiling(phones, durs, f0s, stresses, units, meta=None, palatals=None):
                         # BARE glide (`aj`/`au`/`aų`) is a self-contained nucleus+offglide recording -> play
                         # NATIVE, never stretch (stretching ping-pongs a->i->a = a re-articulated diphthong,
                         # the taip 0.51s bug). In the sonorant grp path it is compressed with the onset.
+                        # A SOFT onset whose combo IS recorded takes it here too: the `u|j` PIPE-glide keeps
+                        # its own body, but the ONSET becomes `Cv|--` -- broliui = lu|-- + u|j, not lu- + u|j
+                        # (engine Lookup-verified). Only l/t have combos (lo|--/lu|--/ti|--), so the soft-r
+                        # words vyriui/kurjeriui keep `ru-` and are untouched.
+                        if soft_c and scombo in units:
+                            on = scombo
                         chain.append(gl); dipkeys.add(gl)
                 elif diph_combo:
                     chain.append(diph_combo); pbod = diph_combo   # the Cuo|/Cie| combined body (no onset)

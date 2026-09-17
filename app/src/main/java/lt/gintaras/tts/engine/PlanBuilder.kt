@@ -14,6 +14,10 @@ internal object PlanBuilder {
     private const val A5_DMIN = 108
     private const val A5_LONGV_EXTRA = 10
     private const val SE8_SEC_LAG = 100
+    // genArmRpos: the fda0 contour machinery RUNS on every frame, but the se8 fall is never armed (no arm
+    // node). Distinct from null ("no contour at all") because an armed-but-never-fired contour still steps
+    // the s94 IIR on each verbatim burst frame (kioj/rioj/dioj: 5-11 samples), a plain no-arm plan does not.
+    const val ARM_UNARMED = Int.MIN_VALUE
 
     private val A5_LONG_MONO = setOf("o")
     private val A5_AU_ONSET = setOf("ąu", "ąj", "ąū")
@@ -216,8 +220,14 @@ internal object PlanBuilder {
         val isCoda = key.startsWith("-") || (!key.endsWith("-") && key.length <= 3)
         val isOnset = key.endsWith("-")
         val pl = phone.replace("'", "")
+        // A MERGED falling diphthong nucleus `oj`/`oi` counts as its long-o HEAD: once the voice is loaded the
+        // front-end merges o + j/i into ONE token, and the engine still spends the long-/o:/ epochs on its
+        // o-body (captured loj/vietoj/lioj are ~10 epochs == ~3.2k samples longer than the undoubled render).
+        // Only the o-BODY unit matches (`-lo`, `o|`); the `-oj` offglide's body ends in 'j' and stays brief.
+        // `ou` keeps its own branch below -- its short/long head rules differ.
+        val head = if (pl.length == 2 && (pl[1] == 'j' || pl[1] == 'i')) pl.substring(0, 1) else pl
         if (isCoda && body.isNotEmpty() && body.last().toString() in A5_LONG_MONO
-            && pl.length == 1 && pl in A5_LONG_MONO
+            && head.length == 1 && head in A5_LONG_MONO
         ) {
             // long-/o:/ doubling gated on the lt_ilgiai LENGTH CODE (the raw transcr token), NOT the old D>=108
             // duration proxy (which missed sportas/tortas/forma `Oo` dur107, korta `oo` dur103). 2-letter code
@@ -396,6 +406,15 @@ internal object PlanBuilder {
             for ((a, b) in apIdx.zip(apIdx.drop(1))) {
                 if (frames[b].key != frames[a].key) blocks.add(b)
             }
+            // The armc char has NO demisyllable of its own: the whole diphthong is ONE piped body, as in the
+            // SOFT falling nucleus (lioj/kioj/rioj/dioj = `Co-`/`lo|--` + `o|`, where the j element never gets
+            // its own unit). The engine's per-char loop arms the se8 fall when it PROCESSES that char's node,
+            // so with no node the fall is never armed and the word's pitch falls to the end. (Engine-WAV
+            // verified; the SPLIT diphthongs duona/važiuoti/kurioj/vietoj have >= 2 blocks and are untouched.)
+            // The j/i gate keeps a 2-CHAR CONSONANT out: `dz`/`dž`/`ch` also put armc on a phone's 2nd
+            // char with a single block (sedžbark/midzmirg), and suppressing their arm is wrong.
+            if (blocks.size == 1 && (engstr[armc] == 'j'.code.toByte() || engstr[armc] == 'i'.code.toByte()))
+                return ARM_UNARMED
             blocks.getOrNull(minOf(elemIdx, blocks.size - 1))
         }
         if (armFrame == null || armFrame == 0) return null
@@ -511,6 +530,13 @@ internal object PlanBuilder {
         val frRpos = mutableListOf<Int>()
         Backend.synthesize(plan, rate = rate, pitch = pitch, frameRpos = frRpos)
         val rr = genArmRpos(word, framesList, frRpos)
+        if (rr == ARM_UNARMED) {
+            // nothing arms the fall (the backend would arm at the per-frame flag), but the contour still runs
+            val stripped = framesList.map { it.copy(release = false) }
+            val plan2 = Backend.Plan(stripped, tail)
+            plan2.se8Ramp = true
+            return plan2
+        }
         if (rr != null) {
             val stripped = framesList.map { it.copy(release = false) }  // releaseRpos overrides the per-frame flag
             val plan2 = Backend.Plan(stripped, tail)
@@ -584,6 +610,7 @@ internal object PlanBuilder {
             val wr = if (end <= frRpos.size) frRpos.subList(start, end).toList() else null
             var rr: Int? = null
             if (wr != null) rr = genArmRpos(w, wf, wr)
+            if (rr == ARM_UNARMED) { armList.add(null); continue }   // this word never arms (phrase already ramps)
             if (rr == null) {
                 val baseRpos = if (start > 0) frRpos.getOrElse(start - 1) { 0 } else 0
                 val srr = wp.releaseRpos

@@ -427,7 +427,7 @@ internal object Selection {
                                  else if ("e|$U_OG" in units) "e|$U_OG" else null
                     val euSoft = softC && v == "e" && vst && i + 2 < n &&
                             phones[i + 2] == "u" && stresses[i + 2] && euBody != null
-                    val on = when {
+                    var on = when {                       // reassigned by the SOFT falling-glide branch below
                         diphCombo != null -> null
                         combo != null && combo in units -> combo
                         else -> onsetUnit(c, v[0], units)
@@ -448,11 +448,31 @@ internal object Selection {
                             // SOFT onset + `ui` -> the `u|j` pipe-glide (kurjeriui/vyriui/broliui).
                             val gl = glideUnit(v[0].toString(), v[1].toString(), vst, units,
                                                prevSoft = (palatals != null && palatals[i]), onset = c)
-                            if (gl != null && gl.startsWith("-")) {
+                            // A SOFT (palatalized) onset + a DASHED falling glide is played by the engine as the
+                            // plain SOFT SYLLABLE -- the `Cv|--` combo + the `v|` pipe body -- with NO offglide
+                            // unit at all: lioj/kioj/rioj/dioj/šioj/kurioj -> lo|-- + o|, exactly like lio/liojo
+                            // (engine CMapStringToOb::Lookup-verified; hard loj keeps lo-/-lo/-oj). Without this
+                            // the merged `oj` token took the hard `Cv-`/`-Cv` pair and dropped the palatalization,
+                            // so "lioj" read "loj". Consonants with NO recorded combo keep their plain `Cv-` onset
+                            // + the pipe (ro-/ko-/do-/šo- + o|). Gated on the PIPE existing (only i|/u|/ū|/o| were
+                            // recorded, so `aj`/`ej` never fire) and on the glide being DASHED, so the soft `ui`
+                            // -> `u|j` pipe-glide keeps its own body (the bare-glide branch below swaps only its
+                            // ONSET: broliui = lu|-- + u|j).
+                            val scombo = c + (if (v[0].toString() == U_OG) "u" else v[0].toString()) + "|--"
+                            val spipe = "${v[0]}|"
+                            if (softC && gl != null && gl.startsWith("-") && spipe in units) {
+                                if (scombo in units) on = scombo      // soft combo when recorded (l/t: lo|--)
+                                chain.add(spipe); pbod = spipe        // pipe body carries the palatalization
+                            } else if (gl != null && gl.startsWith("-")) {
                                 val nbody = bodyUnit(c, v[0].toString(), false, units)
                                 if (nbody != null) { chain.add(nbody); pbod = nbody }
                                 chain.add(gl); dipkeys.add(gl)
                             } else if (gl != null) {
+                                // A SOFT onset whose combo IS recorded takes it here too: the `u|j` PIPE-glide
+                                // keeps its own body, but the ONSET becomes `Cv|--` -- broliui = lu|-- + u|j,
+                                // not lu- + u|j (engine Lookup-verified). Only l/t have combos (lo|--/lu|--/
+                                // ti|--), so the soft-r words vyriui/kurjeriui keep `ru-` and are untouched.
+                                if (softC && scombo in units) on = scombo
                                 chain.add(gl); dipkeys.add(gl)
                             }
                         }
