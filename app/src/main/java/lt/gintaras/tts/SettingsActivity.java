@@ -9,9 +9,11 @@ import android.widget.EditText;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.preference.Preference;
+import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceFragmentCompat;
 
-/** Engine settings: voice selection, number processing, diagnostics, and about info. */
+/** Engine settings: voice selection, number processing, about info, and (debug builds only) the
+ *  synthesis self-test. */
 public class SettingsActivity extends AppCompatActivity {
 
     @Override
@@ -31,6 +33,14 @@ public class SettingsActivity extends AppCompatActivity {
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             setPreferencesFromResource(R.xml.root_preferences, rootKey);
+            // The "Diagnostika" self-test is a developer tool. R.bool.show_diagnostics is false in
+            // app/src/main and overridden to true in app/src/debug, so RELEASE builds drop the whole
+            // category here and debug builds keep it.
+            PreferenceCategory diagCat = findPreference("cat_diag");
+            if (!getResources().getBoolean(R.bool.show_diagnostics)) {
+                if (diagCat != null) getPreferenceScreen().removePreference(diagCat);
+                return;
+            }
             Preference diag = findPreference("run_diag");
             if (diag != null) {
                 diag.setOnPreferenceClickListener(p -> { runDiagnostic(); return true; });

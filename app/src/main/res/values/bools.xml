@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The "Diagnostika" synthesis self-test is a DEVELOPER tool: it is shown only in debug builds.
+         app/src/debug/res/values/bools.xml overrides this to true for the debug build type, and
+         SettingsActivity removes the whole preference category when it is false. -->
+    <bool name="show_diagnostics">false</bool>
+</resources>

@@ -2,7 +2,10 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <!-- Developer self-test: SettingsActivity removes this whole category unless
+         R.bool.show_diagnostics is true (debug builds only). -->
     <PreferenceCategory
+        android:key="cat_diag"
         app:iconSpaceReserved="false"
         app:title="@string/cat_diag">
         <Preference

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Debug builds keep the "Diagnostika" self-test (see app/src/main/res/values/bools.xml). -->
+    <bool name="show_diagnostics">true</bool>
+</resources>
